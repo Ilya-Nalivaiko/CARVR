@@ -60,16 +60,27 @@ Authors   :
 #include <camera/NdkCameraCaptureSession.h>
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaFormat.h>
+#include <media/NdkImageReader.h>
 
 // For UDP Sockets
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+// Forward declaration
+struct App;
+void StartCameraStream(const char* cameraId, App* appContext);
+
 // --- CMPUT428 Custom Globals ---
 ACameraManager* cameraManager = nullptr;
-std::string leftCameraId = "";
-std::string rightCameraId = "";
+std::string leftCameraId = "50";
+std::string rightCameraId = "51";
+AImageReader* imageReader = nullptr;
+ANativeWindow* imageWindow = nullptr;
+ACameraDevice* cameraDevice = nullptr;
+ACaptureSessionOutputContainer* outputs = nullptr;
+ACameraCaptureSession* captureSession = nullptr;
+ACaptureRequest* captureRequest = nullptr;
 
 // Vendor tag dummy (Meta typically maps this dynamically, but we'll use a placeholder
 // or rely on camera index heuristics if the exact hex tag isn't exposed in your NDK version)
@@ -539,6 +550,8 @@ void App::HandleXrEvents() {
                         Focused = false;
                         break;
                     case XR_SESSION_STATE_READY:
+                        // Inside App::HandleSessionStateChanges under XR_SESSION_STATE_READY
+                        StartCameraStream(leftCameraId.c_str(), this); // "this" works here because we are inside the App class!
                     case XR_SESSION_STATE_STOPPING:
                         HandleSessionStateChanges(session_state_changed_event->state);
                         break;
@@ -632,39 +645,98 @@ void UpdateStageBounds(App& app) {
     app.StageBounds = Vector3f(stageBounds.width * 0.5f, 1.0f, stageBounds.height * 0.5f);
 }
 
-void DiscoverPassthroughCameras() {
-    cameraManager = ACameraManager_create();
-    ACameraIdList* cameraIdList = nullptr;
+// 1. Where the actual YUV pixel data arrives (We will feed this to MediaCodec later)
+void OnImageAvailable(void* context, AImageReader* reader) {
+    AImage* image = nullptr;
+    if (AImageReader_acquireLatestImage(reader, &image) == AMEDIA_OK) {
+        // Pixel data secured.
+        AImage_delete(image); // Delete immediately for now so we don't leak memory
+    }
+}
 
-    if (ACameraManager_getCameraIdList(cameraManager, &cameraIdList) != ACAMERA_OK) {
-        ALOGE("CMPUT428: Failed to get camera ID list");
+// 2. Where the Metadata arrives (This is the secret sauce for your OpenXR sync)
+void OnCaptureCompleted(void* context, ACameraCaptureSession* session,
+                        ACaptureRequest* request, const ACameraMetadata* result) {
+    if (!context) return;
+    App* app = static_cast<App*>(context);
+
+    ACameraMetadata_const_entry tsEntry;
+    if (ACameraMetadata_getConstEntry(result, ACAMERA_SENSOR_TIMESTAMP, &tsEntry) == ACAMERA_OK) {
+        int64_t frameTimeNs = tsEntry.data.i64[0];
+
+        if (!app->SessionActive) {
+            // Cast to long long to fix the ARM64 compiler warning
+            ALOGV("CMPUT428: Shutter %lld | Waiting for OpenXR Session Active...", (long long)frameTimeNs);
+            return;
+        }
+
+        XrSpaceLocation loc = {XR_TYPE_SPACE_LOCATION};
+        XrTime xr_time = (XrTime)frameTimeNs;
+
+        XrResult res = xrLocateSpace(app->HeadSpace, app->LocalSpace, xr_time, &loc);
+
+        if (res == XR_SUCCESS) {
+            if ((loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0) {
+                XrPosef pose = loc.pose;
+                ALOGV("CMPUT428: SYNCED! Shutter: %lld | Pose: P(%.3f, %.3f, %.3f)",
+                      (long long)frameTimeNs, pose.position.x, pose.position.y, pose.position.z);
+            } else {
+                ALOGV("CMPUT428: Shutter %lld | Tracking is LOST/INVALID", (long long)frameTimeNs);
+            }
+        } else {
+            ALOGE("CMPUT428: xrLocateSpace failed! Error code: %d", res);
+        }
+    }
+}
+
+// 3. Boilerplate Device Callbacks
+void OnDeviceDisconnected(void* context, ACameraDevice* device) {
+    ACameraDevice_close(device);
+}
+void OnDeviceError(void* context, ACameraDevice* device, int error) {
+    ALOGE("CMPUT428: Camera Hardware Error: %d", error);
+    ACameraDevice_close(device);
+}
+
+// Ensure the signature expects the App* pointer
+void StartCameraStream(const char* cameraId, App* appContext) {
+    if (!cameraId || strlen(cameraId) == 0) return;
+
+    AImageReader_new(1280, 1280, AIMAGE_FORMAT_YUV_420_888, 2, &imageReader);
+    AImageReader_ImageListener listener{nullptr, OnImageAvailable};
+    AImageReader_setImageListener(imageReader, &listener);
+    AImageReader_getWindow(imageReader, &imageWindow);
+
+    ACameraDevice_StateCallbacks devCallbacks{nullptr, OnDeviceDisconnected, OnDeviceError};
+    if (ACameraManager_openCamera(cameraManager, cameraId, &devCallbacks, &cameraDevice) != ACAMERA_OK) {
+        ALOGE("CMPUT428: Failed to open camera %s", cameraId);
         return;
     }
 
-    ALOGV("CMPUT428: Found %d native cameras exposed to NDK.", cameraIdList->numCameras);
+    ACaptureSessionOutputContainer_create(&outputs);
+    ACaptureSessionOutput* output = nullptr;
+    ACaptureSessionOutput_create(imageWindow, &output);
+    ACaptureSessionOutputContainer_add(outputs, output);
 
-    for (int i = 0; i < cameraIdList->numCameras; ++i) {
-        const char* id = cameraIdList->cameraIds[i];
-        ACameraMetadata* chars = nullptr;
-        ACameraManager_getCameraCharacteristics(cameraManager, id, &chars);
+    ACameraCaptureSession_stateCallbacks sessionCallbacks{nullptr, nullptr, nullptr, nullptr};
+    ACameraDevice_createCaptureSession(cameraDevice, outputs, &sessionCallbacks, &captureSession);
 
-        // Try to pull the Meta Vendor Tag (1 = Passthrough RGB)
-        ACameraMetadata_const_entry entry;
-        camera_status_t status = ACameraMetadata_getConstEntry(chars, META_CAMERA_SOURCE_TAG, &entry);
+    ACameraDevice_createCaptureRequest(cameraDevice, TEMPLATE_PREVIEW, &captureRequest);
+    ACameraOutputTarget* target = nullptr;
+    ACameraOutputTarget_create(imageWindow, &target);
+    ACaptureRequest_addTarget(captureRequest, target);
 
-        // If the strict vendor tag fails, we fallback to known Quest 3 camera list indices
-        // Typically, cameras 0 and 1 are the high-res stereo passthrough lenses on Horizon OS.
-        if ((status == ACAMERA_OK && entry.data.u8[0] == 1) || (i == 0 || i == 1)) {
-            ALOGV("CMPUT428: Identified Passthrough Camera ID: %s", id);
-            if (leftCameraId.empty()) {
-                leftCameraId = id;
-            } else if (rightCameraId.empty()) {
-                rightCameraId = id;
-            }
-        }
-        ACameraMetadata_free(chars);
+    // Only one captureCallbacks definition, injecting appContext
+    ACameraCaptureSession_captureCallbacks captureCallbacks{
+            appContext, nullptr, nullptr, OnCaptureCompleted, nullptr, nullptr, nullptr
+    };
+
+    camera_status_t status = ACameraCaptureSession_setRepeatingRequest(captureSession, &captureCallbacks, 1, &captureRequest, nullptr);
+    if (status != ACAMERA_OK) {
+        ALOGE("CMPUT428: HAL REJECTED STREAM! Error code: %d", status);
+    } else {
+        ALOGV("CMPUT428: 60Hz Stream Initialized on Camera %s", cameraId);
     }
-    ACameraManager_deleteCameraIdList(cameraIdList);
 }
 
 /**
@@ -1194,7 +1266,8 @@ int main() {
 
     float clearColor[4] = {0.0f, 0.0f, 0.0f, 0.2f};
 
-    DiscoverPassthroughCameras();
+    // --- CMPUT428: Start the Left Passthrough Stream ---
+    cameraManager = ACameraManager_create();
 
 #if defined(XR_USE_PLATFORM_ANDROID)
     while (androidApp->destroyRequested == 0)
