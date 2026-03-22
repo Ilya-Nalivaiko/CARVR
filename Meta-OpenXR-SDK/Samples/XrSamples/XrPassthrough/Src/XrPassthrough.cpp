@@ -51,6 +51,30 @@ Authors   :
 #include "XrPassthroughInput.h"
 #include "XrPassthroughGl.h"
 
+#include <assert.h>
+
+// --- NDK Camera and Media Headers ---
+#include <camera/NdkCameraManager.h>
+#include <camera/NdkCameraMetadata.h>
+#include <camera/NdkCameraDevice.h>
+#include <camera/NdkCameraCaptureSession.h>
+#include <media/NdkMediaCodec.h>
+#include <media/NdkMediaFormat.h>
+
+// For UDP Sockets
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+// --- CMPUT428 Custom Globals ---
+ACameraManager* cameraManager = nullptr;
+std::string leftCameraId = "";
+std::string rightCameraId = "";
+
+// Vendor tag dummy (Meta typically maps this dynamically, but we'll use a placeholder
+// or rely on camera index heuristics if the exact hex tag isn't exposed in your NDK version)
+uint32_t META_CAMERA_SOURCE_TAG = 0x80000000;
+
 using namespace OVR;
 
 #if !defined(EGL_OPENGL_ES3_BIT_KHR)
@@ -608,6 +632,41 @@ void UpdateStageBounds(App& app) {
     app.StageBounds = Vector3f(stageBounds.width * 0.5f, 1.0f, stageBounds.height * 0.5f);
 }
 
+void DiscoverPassthroughCameras() {
+    cameraManager = ACameraManager_create();
+    ACameraIdList* cameraIdList = nullptr;
+
+    if (ACameraManager_getCameraIdList(cameraManager, &cameraIdList) != ACAMERA_OK) {
+        ALOGE("CMPUT428: Failed to get camera ID list");
+        return;
+    }
+
+    ALOGV("CMPUT428: Found %d native cameras exposed to NDK.", cameraIdList->numCameras);
+
+    for (int i = 0; i < cameraIdList->numCameras; ++i) {
+        const char* id = cameraIdList->cameraIds[i];
+        ACameraMetadata* chars = nullptr;
+        ACameraManager_getCameraCharacteristics(cameraManager, id, &chars);
+
+        // Try to pull the Meta Vendor Tag (1 = Passthrough RGB)
+        ACameraMetadata_const_entry entry;
+        camera_status_t status = ACameraMetadata_getConstEntry(chars, META_CAMERA_SOURCE_TAG, &entry);
+
+        // If the strict vendor tag fails, we fallback to known Quest 3 camera list indices
+        // Typically, cameras 0 and 1 are the high-res stereo passthrough lenses on Horizon OS.
+        if ((status == ACAMERA_OK && entry.data.u8[0] == 1) || (i == 0 || i == 1)) {
+            ALOGV("CMPUT428: Identified Passthrough Camera ID: %s", id);
+            if (leftCameraId.empty()) {
+                leftCameraId = id;
+            } else if (rightCameraId.empty()) {
+                rightCameraId = id;
+            }
+        }
+        ACameraMetadata_free(chars);
+    }
+    ACameraManager_deleteCameraIdList(cameraIdList);
+}
+
 /**
  * This is the main entry point of a native application that is using
  * android_native_app_glue.  It runs in its own thread, with its own
@@ -1134,6 +1193,8 @@ int main() {
     };
 
     float clearColor[4] = {0.0f, 0.0f, 0.0f, 0.2f};
+
+    DiscoverPassthroughCameras();
 
 #if defined(XR_USE_PLATFORM_ANDROID)
     while (androidApp->destroyRequested == 0)

@@ -19,6 +19,10 @@
       android:name="com.oculus.feature.PASSTHROUGH"
       android:required="true"
       />
+  <uses-permission android:name="horizonos.permission.HEADSET_CAMERA" />
+  <uses-permission android:name="android.permission.INTERNET" /> <!-- Needed for your UDP socket later -->
+  <uses-feature android:name="android.hardware.camera2.full" />
+  <uses-feature android:name="com.oculus.feature.PASSTHROUGH" android:required="true" />
   <application
       android:allowBackup="false"
       android:label="xrpassthrough"

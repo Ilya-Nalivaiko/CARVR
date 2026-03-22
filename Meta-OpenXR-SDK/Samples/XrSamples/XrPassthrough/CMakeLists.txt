@@ -27,7 +27,7 @@ file(GLOB_RECURSE SRC_FILES
 
 if(ANDROID)
     add_library(${PROJECT_NAME} MODULE ${SRC_FILES})
-    target_link_libraries(${PROJECT_NAME} PRIVATE samplecommon_gl)
+    target_link_libraries(${PROJECT_NAME} PRIVATE samplecommon_gl camera2ndk mediandk)
     set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "-u ANativeActivity_onCreate")
 elseif(WIN32)
     add_executable(${PROJECT_NAME} ${SRC_FILES})

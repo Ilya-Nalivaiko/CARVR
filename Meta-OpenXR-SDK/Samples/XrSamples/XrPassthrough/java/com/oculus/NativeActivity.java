@@ -19,4 +19,17 @@
 // Copyright (c) Facebook Technologies, LLC and its affiliates. All Rights reserved.
 package com.oculus;
 
-public class NativeActivity extends android.app.NativeActivity {}
+import android.os.Bundle;
+import android.content.pm.PackageManager;
+
+public class NativeActivity extends android.app.NativeActivity {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        // Request raw camera access for the Passthrough API
+        if (checkSelfPermission("horizonos.permission.HEADSET_CAMERA") != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"horizonos.permission.HEADSET_CAMERA"}, 100);
+        }
+    }
+}
