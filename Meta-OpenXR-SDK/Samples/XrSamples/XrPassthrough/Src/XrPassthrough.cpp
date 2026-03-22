@@ -81,6 +81,11 @@ ACameraDevice* cameraDevice = nullptr;
 ACaptureSessionOutputContainer* outputs = nullptr;
 ACameraCaptureSession* captureSession = nullptr;
 ACaptureRequest* captureRequest = nullptr;
+struct SyncedPose { // Pose data to inject into stream
+    int64_t timestampNs;
+    float px, py, pz;    // Position
+    float qx, qy, qz, qw; // Quaternion Rotation
+};
 
 // Vendor tag dummy (Meta typically maps this dynamically, but we'll use a placeholder
 // or rely on camera index heuristics if the exact hex tag isn't exposed in your NDK version)
@@ -676,10 +681,30 @@ void OnCaptureCompleted(void* context, ACameraCaptureSession* session,
         XrResult res = xrLocateSpace(app->HeadSpace, app->LocalSpace, xr_time, &loc);
 
         if (res == XR_SUCCESS) {
-            if ((loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0) {
+            if ((loc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0 &&
+                (loc.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0) {
+
                 XrPosef pose = loc.pose;
-                ALOGV("CMPUT428: SYNCED! Shutter: %lld | Pose: P(%.3f, %.3f, %.3f)",
-                      (long long)frameTimeNs, pose.position.x, pose.position.y, pose.position.z);
+
+                // 1. Log it for sanity checking
+                ALOGV("CMPUT428: SYNCED! Shutter: %lld | Pos(%.3f, %.3f, %.3f) | Rot(%.3f, %.3f, %.3f, %.3f)",
+                      (long long)frameTimeNs,
+                      pose.position.x, pose.position.y, pose.position.z,
+                      pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
+
+                // 2. Package it into our research struct
+                SyncedPose currentPose;
+                currentPose.timestampNs = frameTimeNs;
+                currentPose.px = pose.position.x;
+                currentPose.py = pose.position.y;
+                currentPose.pz = pose.position.z;
+                currentPose.qx = pose.orientation.x;
+                currentPose.qy = pose.orientation.y;
+                currentPose.qz = pose.orientation.z;
+                currentPose.qw = pose.orientation.w;
+
+                // TODO: Push 'currentPose' to a thread-safe queue for the MediaCodec
+
             } else {
                 ALOGV("CMPUT428: Shutter %lld | Tracking is LOST/INVALID", (long long)frameTimeNs);
             }
