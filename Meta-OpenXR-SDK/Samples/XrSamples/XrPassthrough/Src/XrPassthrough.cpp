@@ -51,7 +51,7 @@ Authors   :
 #include "XrPassthroughInput.h"
 #include "XrPassthroughGl.h"
 
-#include <assert.h>
+#include <vector>
 
 // --- NDK Camera and Media Headers ---
 #include <camera/NdkCameraManager.h>
@@ -93,6 +93,7 @@ int udpSocket = -1;
 struct sockaddr_in serverAddr;
 std::thread encoderThread;
 bool isStreaming = false;
+std::vector<uint8_t> spsPpsCache;
 
 // Vendor tag dummy (Meta typically maps this dynamically, but we'll use a placeholder
 // or rely on camera index heuristics if the exact hex tag isn't exposed in your NDK version)
@@ -733,7 +734,6 @@ void OnDeviceError(void* context, ACameraDevice* device, int error) {
 void EncoderDrainLoop() {
     while (isStreaming) {
         AMediaCodecBufferInfo bufferInfo;
-        // Wait up to 10ms for a compressed frame to be ready
         ssize_t bufferIndex = AMediaCodec_dequeueOutputBuffer(mediaCodec, &bufferInfo, 10000);
 
         if (bufferIndex >= 0) {
@@ -741,11 +741,28 @@ void EncoderDrainLoop() {
             uint8_t* buffer = AMediaCodec_getOutputBuffer(mediaCodec, bufferIndex, &bufferSize);
 
             if (buffer != nullptr && bufferInfo.size > 0) {
-                // BLAST TO PC: Send the compressed H.264 NAL unit over UDP
-                sendto(udpSocket, buffer + bufferInfo.offset, bufferInfo.size, 0,
-                       (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+
+                // FLAG 2: AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG (The SPS/PPS Dictionary)
+                if (bufferInfo.flags & 2) {
+                    spsPpsCache.assign(buffer + bufferInfo.offset,
+                                       buffer + bufferInfo.offset + bufferInfo.size);
+                    ALOGV("CMPUT428: Cached SPS/PPS Dictionary (%zu bytes)", spsPpsCache.size());
+                }
+                else {
+                    // FLAG 1: AMEDIACODEC_BUFFER_FLAG_KEY_FRAME (I-Frame)
+                    if (bufferInfo.flags & 1) {
+                        // Blast the dictionary to the PC right before the Keyframe!
+                        if (!spsPpsCache.empty()) {
+                            sendto(udpSocket, spsPpsCache.data(), spsPpsCache.size(), 0,
+                                   (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+                        }
+                    }
+
+                    // Send the actual video frame
+                    sendto(udpSocket, buffer + bufferInfo.offset, bufferInfo.size, 0,
+                           (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+                }
             }
-            // Give the buffer back to the hardware chip
             AMediaCodec_releaseOutputBuffer(mediaCodec, bufferIndex, false);
         }
     }
