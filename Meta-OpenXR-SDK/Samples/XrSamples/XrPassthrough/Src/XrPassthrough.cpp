@@ -63,6 +63,7 @@ Authors   :
 #include <media/NdkImageReader.h>
 
 // For UDP Sockets
+#include <thread>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -75,8 +76,6 @@ void StartCameraStream(const char* cameraId, App* appContext);
 ACameraManager* cameraManager = nullptr;
 std::string leftCameraId = "50";
 std::string rightCameraId = "51";
-AImageReader* imageReader = nullptr;
-ANativeWindow* imageWindow = nullptr;
 ACameraDevice* cameraDevice = nullptr;
 ACaptureSessionOutputContainer* outputs = nullptr;
 ACameraCaptureSession* captureSession = nullptr;
@@ -86,6 +85,14 @@ struct SyncedPose { // Pose data to inject into stream
     float px, py, pz;    // Position
     float qx, qy, qz, qw; // Quaternion Rotation
 };
+
+// streaming
+AMediaCodec* mediaCodec = nullptr;
+ANativeWindow* encoderInputWindow = nullptr; // The hardware surface
+int udpSocket = -1;
+struct sockaddr_in serverAddr;
+std::thread encoderThread;
+bool isStreaming = false;
 
 // Vendor tag dummy (Meta typically maps this dynamically, but we'll use a placeholder
 // or rely on camera index heuristics if the exact hex tag isn't exposed in your NDK version)
@@ -723,24 +730,81 @@ void OnDeviceError(void* context, ACameraDevice* device, int error) {
     ACameraDevice_close(device);
 }
 
+void EncoderDrainLoop() {
+    while (isStreaming) {
+        AMediaCodecBufferInfo bufferInfo;
+        // Wait up to 10ms for a compressed frame to be ready
+        ssize_t bufferIndex = AMediaCodec_dequeueOutputBuffer(mediaCodec, &bufferInfo, 10000);
+
+        if (bufferIndex >= 0) {
+            size_t bufferSize = 0;
+            uint8_t* buffer = AMediaCodec_getOutputBuffer(mediaCodec, bufferIndex, &bufferSize);
+
+            if (buffer != nullptr && bufferInfo.size > 0) {
+                // BLAST TO PC: Send the compressed H.264 NAL unit over UDP
+                sendto(udpSocket, buffer + bufferInfo.offset, bufferInfo.size, 0,
+                       (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+            }
+            // Give the buffer back to the hardware chip
+            AMediaCodec_releaseOutputBuffer(mediaCodec, bufferIndex, false);
+        }
+    }
+}
+
+void InitMediaCodecAndNetwork() {
+    // 1. Setup UDP Socket (REPLACE THE IP WITH YOUR PC'S LOCAL WI-FI IP)
+    udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(5000);
+    inet_pton(AF_INET, "192.168.1.133", &serverAddr.sin_addr); // <--- CHANGE ME!
+
+    // 2. Setup the Hardware H.264 Encoder
+    mediaCodec = AMediaCodec_createEncoderByType("video/avc");
+    AMediaFormat* format = AMediaFormat_new();
+    AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, "video/avc");
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, 1280);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, 1280);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BIT_RATE, 5000000); // 5 Mbps target
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_FRAME_RATE, 60);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1); // Keyframe every 1 second
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, 2130708361); // COLOR_FormatSurface
+
+    media_status_t status = AMediaCodec_configure(mediaCodec, format, nullptr, nullptr, AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
+    if (status != AMEDIA_OK) {
+        ALOGE("CMPUT428: Failed to configure MediaCodec: %d", status);
+        return;
+    }
+
+    // 3. Create the direct hardware surface for the Camera to write into
+    AMediaCodec_createInputSurface(mediaCodec, &encoderInputWindow);
+    AMediaCodec_start(mediaCodec);
+    AMediaFormat_delete(format);
+
+    // 4. Start the background extraction thread
+    isStreaming = true;
+    encoderThread = std::thread(EncoderDrainLoop);
+
+    ALOGV("CMPUT428: Codec and UDP Ready. Target IP set.");
+}
+
 // Ensure the signature expects the App* pointer
 void StartCameraStream(const char* cameraId, App* appContext) {
     if (!cameraId || strlen(cameraId) == 0) return;
 
-    AImageReader_new(1280, 1280, AIMAGE_FORMAT_YUV_420_888, 2, &imageReader);
-    AImageReader_ImageListener listener{nullptr, OnImageAvailable};
-    AImageReader_setImageListener(imageReader, &listener);
-    AImageReader_getWindow(imageReader, &imageWindow);
+    // --- NEW: Initialize our Hardware Encoder and Socket ---
+    InitMediaCodecAndNetwork();
 
+    // The Camera Hardware setup
     ACameraDevice_StateCallbacks devCallbacks{nullptr, OnDeviceDisconnected, OnDeviceError};
     if (ACameraManager_openCamera(cameraManager, cameraId, &devCallbacks, &cameraDevice) != ACAMERA_OK) {
         ALOGE("CMPUT428: Failed to open camera %s", cameraId);
         return;
     }
 
+    // --- NEW: Pipe the Camera DIRECTLY to the MediaCodec Surface ---
     ACaptureSessionOutputContainer_create(&outputs);
     ACaptureSessionOutput* output = nullptr;
-    ACaptureSessionOutput_create(imageWindow, &output);
+    ACaptureSessionOutput_create(encoderInputWindow, &output);
     ACaptureSessionOutputContainer_add(outputs, output);
 
     ACameraCaptureSession_stateCallbacks sessionCallbacks{nullptr, nullptr, nullptr, nullptr};
@@ -748,10 +812,9 @@ void StartCameraStream(const char* cameraId, App* appContext) {
 
     ACameraDevice_createCaptureRequest(cameraDevice, TEMPLATE_PREVIEW, &captureRequest);
     ACameraOutputTarget* target = nullptr;
-    ACameraOutputTarget_create(imageWindow, &target);
+    ACameraOutputTarget_create(encoderInputWindow, &target);
     ACaptureRequest_addTarget(captureRequest, target);
 
-    // Only one captureCallbacks definition, injecting appContext
     ACameraCaptureSession_captureCallbacks captureCallbacks{
             appContext, nullptr, nullptr, OnCaptureCompleted, nullptr, nullptr, nullptr
     };
