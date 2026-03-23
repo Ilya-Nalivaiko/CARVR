@@ -80,7 +80,7 @@ ACameraDevice* cameraDevice = nullptr;
 ACaptureSessionOutputContainer* outputs = nullptr;
 ACameraCaptureSession* captureSession = nullptr;
 ACaptureRequest* captureRequest = nullptr;
-struct SyncedPose { // Pose data to inject into stream
+struct __attribute__((packed)) SyncedPose { // Pose data to inject into stream
     int64_t timestampNs;
     float px, py, pz;    // Position
     float qx, qy, qz, qw; // Quaternion Rotation
@@ -668,6 +668,9 @@ void OnImageAvailable(void* context, AImageReader* reader) {
 }
 
 // 2. Where the Metadata arrives (This is the secret sauce for your OpenXR sync)
+std::mutex poseMutex;
+SyncedPose latestPose;
+bool hasNewPose = false;
 void OnCaptureCompleted(void* context, ACameraCaptureSession* session,
                         ACaptureRequest* request, const ACameraMetadata* result) {
     if (!context) return;
@@ -711,7 +714,11 @@ void OnCaptureCompleted(void* context, ACameraCaptureSession* session,
                 currentPose.qz = pose.orientation.z;
                 currentPose.qw = pose.orientation.w;
 
-                // TODO: Push 'currentPose' to a thread-safe queue for the MediaCodec
+                {
+                    std::lock_guard<std::mutex> lock(poseMutex);
+                    latestPose = currentPose;
+                    hasNewPose = true;
+                }
 
             } else {
                 ALOGV("CMPUT428: Shutter %lld | Tracking is LOST/INVALID", (long long)frameTimeNs);
@@ -729,6 +736,38 @@ void OnDeviceDisconnected(void* context, ACameraDevice* device) {
 void OnDeviceError(void* context, ACameraDevice* device, int error) {
     ALOGE("CMPUT428: Camera Hardware Error: %d", error);
     ACameraDevice_close(device);
+}
+
+std::vector<uint8_t> ForgeSEINALUnit(const SyncedPose& pose) {
+    std::vector<uint8_t> sei;
+
+    // 1. Standard H.264 Start Code
+    sei.push_back(0x00); sei.push_back(0x00); sei.push_back(0x00); sei.push_back(0x01);
+
+    // 2. NAL Unit Type: 0x06 (SEI)
+    sei.push_back(0x06);
+
+    // 3. Payload Type: 0x05 (Unregistered User Data)
+    sei.push_back(0x05);
+
+    // 4. Payload Size: 16 bytes (UUID) + 36 bytes (SyncedPose) = 52 bytes
+    sei.push_back(52);
+
+    // 5. Custom 16-byte UUID ("CMPUT428_POSE_ID")
+    const uint8_t uuid[16] = {
+            0x43, 0x4D, 0x50, 0x55, 0x54, 0x34, 0x32, 0x38,
+            0x5F, 0x50, 0x4F, 0x53, 0x45, 0x5F, 0x49, 0x44
+    };
+    sei.insert(sei.end(), uuid, uuid + 16);
+
+    // 6. The actual pose tracking data
+    const uint8_t* poseBytes = reinterpret_cast<const uint8_t*>(&pose);
+    sei.insert(sei.end(), poseBytes, poseBytes + sizeof(SyncedPose));
+
+    // 7. H.264 Trailing bit (0x80)
+    sei.push_back(0x80);
+
+    return sei;
 }
 
 void EncoderDrainLoop() {
@@ -758,7 +797,25 @@ void EncoderDrainLoop() {
                         }
                     }
 
-                    // Send the actual video frame
+                    // --- NEW: Inject the SEI Pose Packet ---
+                    SyncedPose poseToSend;
+                    bool shouldSendPose = false;
+                    {
+                        std::lock_guard<std::mutex> lock(poseMutex);
+                        if (hasNewPose) {
+                            poseToSend = latestPose;
+                            shouldSendPose = true;
+                            hasNewPose = false; // Reset so we don't send stale data
+                        }
+                    }
+
+                    if (shouldSendPose) {
+                        std::vector<uint8_t> seiPacket = ForgeSEINALUnit(poseToSend);
+                        sendto(udpSocket, seiPacket.data(), seiPacket.size(), 0,
+                               (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+                    }
+
+                    // --- Send the actual video frame ---
                     sendto(udpSocket, buffer + bufferInfo.offset, bufferInfo.size, 0,
                            (struct sockaddr*)&serverAddr, sizeof(serverAddr));
                 }
