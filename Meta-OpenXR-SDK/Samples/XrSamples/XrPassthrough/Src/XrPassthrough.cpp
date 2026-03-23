@@ -1581,8 +1581,8 @@ int main() {
         // const Mode mode = Mode(((frameCount - framesCyclePaused) / framesPerMode) % Mode_NumModes);
 
         // TODO AT SOME POINT TRY THE EDGE DETECTION ONE FOR DEBUGGING FEATURE RICH AREAS
-        const Mode prevMode = Mode_Passthrough_Basic;
-        const Mode mode = Mode_Passthrough_Basic;
+        const Mode prevMode = Mode(0);
+        const Mode mode = Mode(1);
 
         if (mode != prevMode) {
             // Unset any sticky state from the previous mode
