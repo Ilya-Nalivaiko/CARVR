@@ -1574,11 +1574,15 @@ int main() {
 
         // FB_passthrough sample begin
         // Cycle through passthrough operation / display modes
-        const Mode prevMode = Mode(
-            ((frameCount - framesCyclePaused + (framesPerMode * Mode_NumModes) - 1) /
-             framesPerMode) %
-            Mode_NumModes);
-        const Mode mode = Mode(((frameCount - framesCyclePaused) / framesPerMode) % Mode_NumModes);
+        // const Mode prevMode = Mode(
+        //     ((frameCount - framesCyclePaused + (framesPerMode * Mode_NumModes) - 1) /
+        //      framesPerMode) %
+        //     Mode_NumModes);
+        // const Mode mode = Mode(((frameCount - framesCyclePaused) / framesPerMode) % Mode_NumModes);
+
+        // TODO AT SOME POINT TRY THE EDGE DETECTION ONE FOR DEBUGGING FEATURE RICH AREAS
+        const Mode prevMode = Mode_Passthrough_Basic;
+        const Mode mode = Mode_Passthrough_Basic;
 
         if (mode != prevMode) {
             // Unset any sticky state from the previous mode
