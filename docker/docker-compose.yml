@@ -1,0 +1,21 @@
+services:
+  receiver:
+    # 1. We name the image so Compose checks the local cache first!
+    image: quest3_receiver:latest
+    container_name: quest3_receiver
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # 2. Host network is CRITICAL for ROS 2 DDS and high-speed UDP on port 5000
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      # Mount the actual X11 display socket so OpenCV can draw on your screen
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Mount your code so VS Code can edit it live
+      - ./src:/workspace
+    # Keep it alive for VS Code
+    command: tail -f /dev/null
+    tty: true

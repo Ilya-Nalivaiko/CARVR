@@ -838,9 +838,9 @@ void InitMediaCodecAndNetwork() {
     AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, "video/avc");
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, 1280);
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, 1280);
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BIT_RATE, 5000000); // 5 Mbps target
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BIT_RATE, 25000000); //MASSIVE BITRATE: 25 Mbps target
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_FRAME_RATE, 60);
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1); // Keyframe every 1 second
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 0); // ALL-INTRA ENCODING: '0' forces every frame to be an I-Frame, no motion smoothing 
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, 2130708361); // COLOR_FormatSurface
 
     media_status_t status = AMediaCodec_configure(mediaCodec, format, nullptr, nullptr, AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
