@@ -1,66 +1,163 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import PoseStamped
+
 import cv2
 import av
 import socket
 import struct
+import threading
 import numpy as np
 
-# 1. Setup the UDP Socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind(("0.0.0.0", 5000))
+class StereoReceiverNode(Node):
+    def __init__(self):
+        super().__init__('quest3_stereo_receiver')
 
-# 2. Initialize the Hardware-Accelerated H.264 Decoder
-codec = av.CodecContext.create('h264', 'r')
+        # 1. Setup ROS Publishers
+        self.left_pub = self.create_publisher(Image, '/quest3/camera/left/image_raw', 10)
+        self.right_pub = self.create_publisher(Image, '/quest3/camera/right/image_raw', 10)
+        self.pose_pub = self.create_publisher(PoseStamped, '/quest3/tracking/pose', 10)
 
-print("Listening on UDP port 5000... Waiting for Quest 3 stream with Pose SEI.")
+        # 2. Shared Memory for the Decoder Threads
+        self.lock = threading.Lock()
+        self.latest_left = None
+        self.latest_right = None
+        self.latest_pose = None
 
-UUID = b"CMPUT428_POSE_ID"
-POSE_STRUCT_FMT = "<q7f" 
-pos_text = "Waiting for Position..."
-rot_text = "Waiting for Rotation..."
+        self.get_logger().info("Stereo ROS Node Active. Listening on UDP 5000 & 5001...")
 
-try:
-    while True:
-        data, addr = sock.recvfrom(65535)
+        # 3. Spin up two independent UDP decoding threads
+        self.left_thread = threading.Thread(target=self.udp_listen_loop, args=(5000, 'left'), daemon=True)
+        self.right_thread = threading.Thread(target=self.udp_listen_loop, args=(5001, 'right'), daemon=True)
         
-        # 3. INTERCEPT THE SEI NAL UNIT
-        if len(data) == 60 and data[4] == 0x06 and data[5] == 0x05 and data[7:23] == UUID:
-            pose_bytes = data[23:59]
-            timestamp, px, py, pz, qx, qy, qz, qw = struct.unpack(POSE_STRUCT_FMT, pose_bytes)
-            
-            pos_text = f"Pos: X:{px:.3f} Y:{py:.3f} Z:{pz:.3f}"
-            rot_text = f"Rot: {qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f}"
-            continue 
-            
-        # 4. DECODE THE VIDEO
-        packets = codec.parse(data)
-        for packet in packets:
-            try:
-                # Catch the missing dictionary crash here!
-                frames = codec.decode(packet)
-            except av.error.InvalidDataError:
-                # Silently ignore the error until the next Keyframe arrives
-                continue
-                
-            for frame in frames:
-                img = frame.to_ndarray(format='bgr24')
-                
-                # Downscale by 2x
-                h, w, _ = img.shape
-                img = cv2.resize(img, (w // 2, h // 2))
-                h, w, _ = img.shape
-                
-                # Stamp Position and Rotation
-                cv2.putText(img, pos_text, (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
-                cv2.putText(img, rot_text, (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
-                cv2.drawMarker(img, (w // 2, h // 2), (0, 0, 255), cv2.MARKER_CROSS, 20, 2)
-                
-                cv2.imshow("CMPUT428: Synced Passthrough", img)
-                
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    raise KeyboardInterrupt
+        self.left_thread.start()
+        self.right_thread.start()
 
-except KeyboardInterrupt:
-    print("\nClosing stream.")
-finally:
-    cv2.destroyAllWindows()
-    sock.close()
+        # 4. Setup the Main Thread Display & Publish Loop (60Hz)
+        self.timer = self.create_timer(1.0 / 60.0, self.sync_and_publish)
+
+    def udp_listen_loop(self, port, eye):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(("0.0.0.0", port))
+        codec = av.CodecContext.create('h264', 'r')
+
+        UUID = b"CMPUT428_POSE_ID"
+        POSE_STRUCT_FMT = "<q7f" 
+
+        while rclpy.ok():
+            try:
+                data, addr = sock.recvfrom(65535)
+                
+                # --- INTERCEPT THE SEI NAL UNIT ---
+                if len(data) == 60 and data[4] == 0x06 and data[5] == 0x05 and data[7:23] == UUID:
+                    pose_bytes = data[23:59]
+                    timestamp, px, py, pz, qx, qy, qz, qw = struct.unpack(POSE_STRUCT_FMT, pose_bytes)
+                    
+                    pose_msg = PoseStamped()
+                    pose_msg.header.frame_id = "quest3_world"
+                    pose_msg.pose.position.x = px
+                    pose_msg.pose.position.y = py
+                    pose_msg.pose.position.z = pz
+                    pose_msg.pose.orientation.x = qx
+                    pose_msg.pose.orientation.y = qy
+                    pose_msg.pose.orientation.z = qz
+                    pose_msg.pose.orientation.w = qw
+                    
+                    with self.lock:
+                        self.latest_pose = pose_msg
+                    continue 
+                    
+                # --- DECODE THE VIDEO ---
+                packets = codec.parse(data)
+                for packet in packets:
+                    try:
+                        frames = codec.decode(packet)
+                    except av.error.InvalidDataError:
+                        continue 
+                        
+                    for frame in frames:
+                        img = frame.to_ndarray(format='bgr24')
+                        
+                        # Downscale by 2x for manageable viewing and bandwidth
+                        h, w, _ = img.shape
+                        img = cv2.resize(img, (w // 2, h // 2))
+                        
+                        # Save it to the shared memory block
+                        with self.lock:
+                            if eye == 'left':
+                                self.latest_left = img
+                            else:
+                                self.latest_right = img
+
+            except Exception as e:
+                self.get_logger().error(f"Stream error on port {port}: {e}")
+
+    def create_ros_image(self, img, frame_id, timestamp):
+        img_msg = Image()
+        img_msg.header.stamp = timestamp
+        img_msg.header.frame_id = frame_id
+        img_msg.height = img.shape[0]
+        img_msg.width = img.shape[1]
+        img_msg.encoding = 'bgr8'
+        img_msg.is_bigendian = False
+        img_msg.step = img.shape[1] * 3
+        img_msg.data = img.tobytes()
+        return img_msg
+
+    def sync_and_publish(self):
+        # Safely grab the newest frames
+        with self.lock:
+            left_img = self.latest_left
+            right_img = self.latest_right
+            pose_msg = self.latest_pose
+
+        # Only publish and render if both cameras have booted and sent a frame
+        if left_img is not None and right_img is not None:
+            now = self.get_clock().now().to_msg()
+
+            # 1. Publish to ROS
+            self.left_pub.publish(self.create_ros_image(left_img, "quest3_camera_left", now))
+            self.right_pub.publish(self.create_ros_image(right_img, "quest3_camera_right", now))
+            
+            if pose_msg is not None:
+                pose_msg.header.stamp = now
+                self.pose_pub.publish(pose_msg)
+
+            # 2. Render the Side-by-Side OpenCV Window
+            sbs_image = cv2.hconcat([left_img, right_img])
+            
+            # Draw Labels
+            cv2.putText(sbs_image, "LEFT EYE (Port 5000)", (20, 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+            cv2.putText(sbs_image, "RIGHT EYE (Port 5001)", (left_img.shape[1] + 20, 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+            
+            # Draw Tracking Status
+            status_color = (0, 255, 0) if pose_msg else (0, 0, 255)
+            status_text = "Tracking: LOCKED" if pose_msg else "Tracking: SEARCHING..."
+            cv2.putText(sbs_image, status_text, (20, 60), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2, cv2.LINE_AA)
+
+            cv2.imshow("CMPUT428: Stereoscopic Passthrough", sbs_image)
+            
+            # This allows OpenCV to draw the UI in the main thread
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                rclpy.shutdown()
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = StereoReceiverNode()
+    
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        cv2.destroyAllWindows()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
