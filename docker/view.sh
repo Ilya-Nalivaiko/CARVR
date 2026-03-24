@@ -1,1 +1,2 @@
-docker exec -it quest3_receiver view.sh
+xhost +local:
+docker exec -it quest3_receiver /bin/bash view.sh

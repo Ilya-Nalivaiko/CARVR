@@ -70,16 +70,37 @@ Authors   :
 
 // Forward declaration
 struct App;
-void StartCameraStream(const char* cameraId, App* appContext);
+void StartDualCameraStreams(App* appContext);
 
 // --- CMPUT428 Custom Globals ---
+struct StreamContext {
+    AMediaCodec* codec = nullptr;
+    ANativeWindow* inputWindow = nullptr;
+    int udpSocket = -1;
+    struct sockaddr_in serverAddr;
+    std::thread encoderThread;
+    std::vector<uint8_t> spsPpsCache;
+    bool isStreaming = false;
+    std::string cameraId;
+};
+
+StreamContext leftStream;
+StreamContext rightStream;
+
+// We need two independent camera sessions now
+ACameraDevice* leftCameraDevice = nullptr;
+ACaptureSessionOutputContainer* leftOutputs = nullptr;
+ACameraCaptureSession* leftCaptureSession = nullptr;
+ACaptureRequest* leftCaptureRequest = nullptr;
+
+ACameraDevice* rightCameraDevice = nullptr;
+ACaptureSessionOutputContainer* rightOutputs = nullptr;
+ACameraCaptureSession* rightCaptureSession = nullptr;
+ACaptureRequest* rightCaptureRequest = nullptr;
+
 ACameraManager* cameraManager = nullptr;
 std::string leftCameraId = "50";
 std::string rightCameraId = "51";
-ACameraDevice* cameraDevice = nullptr;
-ACaptureSessionOutputContainer* outputs = nullptr;
-ACameraCaptureSession* captureSession = nullptr;
-ACaptureRequest* captureRequest = nullptr;
 struct __attribute__((packed)) SyncedPose { // Pose data to inject into stream
     int64_t timestampNs;
     float px, py, pz;    // Position
@@ -564,7 +585,7 @@ void App::HandleXrEvents() {
                         break;
                     case XR_SESSION_STATE_READY:
                         // Inside App::HandleSessionStateChanges under XR_SESSION_STATE_READY
-                        StartCameraStream(leftCameraId.c_str(), this); // "this" works here because we are inside the App class!
+                        StartDualCameraStreams(this); // "this" works here because we are inside the App class!                 
                     case XR_SESSION_STATE_STOPPING:
                         HandleSessionStateChanges(session_state_changed_event->state);
                         break;
@@ -770,34 +791,29 @@ std::vector<uint8_t> ForgeSEINALUnit(const SyncedPose& pose) {
     return sei;
 }
 
-void EncoderDrainLoop() {
-    while (isStreaming) {
+void EncoderDrainLoop(StreamContext* ctx) {
+    while (ctx->isStreaming) {
         AMediaCodecBufferInfo bufferInfo;
-        ssize_t bufferIndex = AMediaCodec_dequeueOutputBuffer(mediaCodec, &bufferInfo, 10000);
-
+        ssize_t bufferIndex = AMediaCodec_dequeueOutputBuffer(ctx->codec, &bufferInfo, 10000);
+        
         if (bufferIndex >= 0) {
             size_t bufferSize = 0;
-            uint8_t* buffer = AMediaCodec_getOutputBuffer(mediaCodec, bufferIndex, &bufferSize);
-
+            uint8_t* buffer = AMediaCodec_getOutputBuffer(ctx->codec, bufferIndex, &bufferSize);
+            
             if (buffer != nullptr && bufferInfo.size > 0) {
-
-                // FLAG 2: AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG (The SPS/PPS Dictionary)
-                if (bufferInfo.flags & 2) {
-                    spsPpsCache.assign(buffer + bufferInfo.offset,
-                                       buffer + bufferInfo.offset + bufferInfo.size);
-                    ALOGV("CMPUT428: Cached SPS/PPS Dictionary (%zu bytes)", spsPpsCache.size());
-                }
+                if (bufferInfo.flags & 2) { // SPS/PPS Dictionary
+                    ctx->spsPpsCache.assign(buffer + bufferInfo.offset, 
+                                            buffer + bufferInfo.offset + bufferInfo.size);
+                } 
                 else {
-                    // FLAG 1: AMEDIACODEC_BUFFER_FLAG_KEY_FRAME (I-Frame)
-                    if (bufferInfo.flags & 1) {
-                        // Blast the dictionary to the PC right before the Keyframe!
-                        if (!spsPpsCache.empty()) {
-                            sendto(udpSocket, spsPpsCache.data(), spsPpsCache.size(), 0,
-                                   (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+                    if (bufferInfo.flags & 1) { // I-Frame
+                        if (!ctx->spsPpsCache.empty()) {
+                            sendto(ctx->udpSocket, ctx->spsPpsCache.data(), ctx->spsPpsCache.size(), 0,
+                                   (struct sockaddr*)&ctx->serverAddr, sizeof(ctx->serverAddr));
                         }
                     }
-
-                    // --- NEW: Inject the SEI Pose Packet ---
+                    
+                    // --- Inject the SEI Pose Packet ---
                     SyncedPose poseToSend;
                     bool shouldSendPose = false;
                     {
@@ -805,100 +821,107 @@ void EncoderDrainLoop() {
                         if (hasNewPose) {
                             poseToSend = latestPose;
                             shouldSendPose = true;
-                            hasNewPose = false; // Reset so we don't send stale data
                         }
                     }
-
+                    
                     if (shouldSendPose) {
                         std::vector<uint8_t> seiPacket = ForgeSEINALUnit(poseToSend);
-                        sendto(udpSocket, seiPacket.data(), seiPacket.size(), 0,
-                               (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+                        sendto(ctx->udpSocket, seiPacket.data(), seiPacket.size(), 0,
+                               (struct sockaddr*)&ctx->serverAddr, sizeof(ctx->serverAddr));
                     }
-
-                    // --- Send the actual video frame ---
-                    sendto(udpSocket, buffer + bufferInfo.offset, bufferInfo.size, 0,
-                           (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+                    
+                    // --- Send Video Frame ---
+                    sendto(ctx->udpSocket, buffer + bufferInfo.offset, bufferInfo.size, 0,
+                           (struct sockaddr*)&ctx->serverAddr, sizeof(ctx->serverAddr));
                 }
             }
-            AMediaCodec_releaseOutputBuffer(mediaCodec, bufferIndex, false);
+            AMediaCodec_releaseOutputBuffer(ctx->codec, bufferIndex, false);
         }
     }
 }
 
-void InitMediaCodecAndNetwork() {
-    // 1. Setup UDP Socket (REPLACE THE IP WITH YOUR PC'S LOCAL WI-FI IP)
-    udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(5000);
-    inet_pton(AF_INET, "192.168.1.133", &serverAddr.sin_addr); // <--- CHANGE ME!
+void InitStreamContext(StreamContext& ctx, const char* ip, int port, const char* camId) {
+    ctx.cameraId = camId;
+    ctx.udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
+    ctx.serverAddr.sin_family = AF_INET;
+    ctx.serverAddr.sin_port = htons(port);
+    inet_pton(AF_INET, ip, &ctx.serverAddr.sin_addr);
 
-    // 2. Setup the Hardware H.264 Encoder
-    mediaCodec = AMediaCodec_createEncoderByType("video/avc");
+    ctx.codec = AMediaCodec_createEncoderByType("video/avc");
     AMediaFormat* format = AMediaFormat_new();
     AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, "video/avc");
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, 1280);
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, 1280);
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BIT_RATE, 25000000); //MASSIVE BITRATE: 25 Mbps target
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_FRAME_RATE, 60);
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 0); // ALL-INTRA ENCODING: '0' forces every frame to be an I-Frame, no motion smoothing 
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, 2130708361); // COLOR_FormatSurface
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BIT_RATE, 10000000); 
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_FRAME_RATE, 30);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1); 
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, 2130708361); 
 
-    media_status_t status = AMediaCodec_configure(mediaCodec, format, nullptr, nullptr, AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
-    if (status != AMEDIA_OK) {
-        ALOGE("CMPUT428: Failed to configure MediaCodec: %d", status);
-        return;
-    }
-
-    // 3. Create the direct hardware surface for the Camera to write into
-    AMediaCodec_createInputSurface(mediaCodec, &encoderInputWindow);
-    AMediaCodec_start(mediaCodec);
+    AMediaCodec_configure(ctx.codec, format, nullptr, nullptr, AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
+    AMediaCodec_createInputSurface(ctx.codec, &ctx.inputWindow);
+    AMediaCodec_start(ctx.codec);
     AMediaFormat_delete(format);
 
-    // 4. Start the background extraction thread
-    isStreaming = true;
-    encoderThread = std::thread(EncoderDrainLoop);
-
-    ALOGV("CMPUT428: Codec and UDP Ready. Target IP set.");
+    ctx.isStreaming = true;
+    ctx.encoderThread = std::thread(EncoderDrainLoop, &ctx);
+    
+    ALOGV("CMPUT428: Stream Context Initialized for Camera %s on Port %d", camId, port);
 }
 
-// Ensure the signature expects the App* pointer
-void StartCameraStream(const char* cameraId, App* appContext) {
-    if (!cameraId || strlen(cameraId) == 0) return;
+void StartDualCameraStreams(App* appContext) {
+    if (!appContext) return;
+    
+    ALOGV("CMPUT428: Initializing Dual Stereo Camera Streams...");
 
-    // --- NEW: Initialize our Hardware Encoder and Socket ---
-    InitMediaCodecAndNetwork();
+    // 1. Init the Encoders (Make sure to use your Bazzite laptop's IP!)
+    InitStreamContext(leftStream, "192.168.1.133", 5000, leftCameraId.c_str());
+    InitStreamContext(rightStream, "192.168.1.133", 5001, rightCameraId.c_str());
 
-    // The Camera Hardware setup
-    ACameraDevice_StateCallbacks devCallbacks{nullptr, OnDeviceDisconnected, OnDeviceError};
-    if (ACameraManager_openCamera(cameraManager, cameraId, &devCallbacks, &cameraDevice) != ACAMERA_OK) {
-        ALOGE("CMPUT428: Failed to open camera %s", cameraId);
-        return;
-    }
-
-    // --- NEW: Pipe the Camera DIRECTLY to the MediaCodec Surface ---
-    ACaptureSessionOutputContainer_create(&outputs);
-    ACaptureSessionOutput* output = nullptr;
-    ACaptureSessionOutput_create(encoderInputWindow, &output);
-    ACaptureSessionOutputContainer_add(outputs, output);
-
-    ACameraCaptureSession_stateCallbacks sessionCallbacks{nullptr, nullptr, nullptr, nullptr};
-    ACameraDevice_createCaptureSession(cameraDevice, outputs, &sessionCallbacks, &captureSession);
-
-    ACameraDevice_createCaptureRequest(cameraDevice, TEMPLATE_PREVIEW, &captureRequest);
-    ACameraOutputTarget* target = nullptr;
-    ACameraOutputTarget_create(encoderInputWindow, &target);
-    ACaptureRequest_addTarget(captureRequest, target);
-
-    ACameraCaptureSession_captureCallbacks captureCallbacks{
-            appContext, nullptr, nullptr, OnCaptureCompleted, nullptr, nullptr, nullptr
+    // 2. Start Left Camera
+    ACameraDevice_StateCallbacks leftCallbacks{nullptr, OnDeviceDisconnected, OnDeviceError};
+    ACameraManager_openCamera(cameraManager, leftStream.cameraId.c_str(), &leftCallbacks, &leftCameraDevice);
+    
+    ACaptureSessionOutputContainer_create(&leftOutputs);
+    ACaptureSessionOutput* leftOutput = nullptr;
+    ACaptureSessionOutput_create(leftStream.inputWindow, &leftOutput);
+    ACaptureSessionOutputContainer_add(leftOutputs, leftOutput);
+    
+    ACameraCaptureSession_stateCallbacks leftSessionCb{nullptr, nullptr, nullptr, nullptr};
+    ACameraDevice_createCaptureSession(leftCameraDevice, leftOutputs, &leftSessionCb, &leftCaptureSession);
+    
+    ACameraDevice_createCaptureRequest(leftCameraDevice, TEMPLATE_PREVIEW, &leftCaptureRequest);
+    ACameraOutputTarget* leftTarget = nullptr;
+    ACameraOutputTarget_create(leftStream.inputWindow, &leftTarget);
+    ACaptureRequest_addTarget(leftCaptureRequest, leftTarget);
+    
+    // Pass appContext here so the callback can access OpenXR spaces!
+    ACameraCaptureSession_captureCallbacks leftCaptureCb{
+        appContext, nullptr, nullptr, OnCaptureCompleted, nullptr, nullptr, nullptr
     };
+    ACameraCaptureSession_setRepeatingRequest(leftCaptureSession, &leftCaptureCb, 1, &leftCaptureRequest, nullptr);
 
-    camera_status_t status = ACameraCaptureSession_setRepeatingRequest(captureSession, &captureCallbacks, 1, &captureRequest, nullptr);
-    if (status != ACAMERA_OK) {
-        ALOGE("CMPUT428: HAL REJECTED STREAM! Error code: %d", status);
-    } else {
-        ALOGV("CMPUT428: 60Hz Stream Initialized on Camera %s", cameraId);
-    }
+    // 3. Start Right Camera
+    ACameraDevice_StateCallbacks rightCallbacks{nullptr, OnDeviceDisconnected, OnDeviceError};
+    ACameraManager_openCamera(cameraManager, rightStream.cameraId.c_str(), &rightCallbacks, &rightCameraDevice);
+    
+    ACaptureSessionOutputContainer_create(&rightOutputs);
+    ACaptureSessionOutput* rightOutput = nullptr;
+    ACaptureSessionOutput_create(rightStream.inputWindow, &rightOutput);
+    ACaptureSessionOutputContainer_add(rightOutputs, rightOutput);
+    
+    ACameraCaptureSession_stateCallbacks rightSessionCb{nullptr, nullptr, nullptr, nullptr};
+    ACameraDevice_createCaptureSession(rightCameraDevice, rightOutputs, &rightSessionCb, &rightCaptureSession);
+    
+    ACameraDevice_createCaptureRequest(rightCameraDevice, TEMPLATE_PREVIEW, &rightCaptureRequest);
+    ACameraOutputTarget* rightTarget = nullptr;
+    ACameraOutputTarget_create(rightStream.inputWindow, &rightTarget);
+    ACaptureRequest_addTarget(rightCaptureRequest, rightTarget);
+    
+    // Note: OnCaptureCompleted is nullptr here because we already get the tracking pose from the Left camera!
+    ACameraCaptureSession_captureCallbacks rightCaptureCb{
+        appContext, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
+    }; 
+    ACameraCaptureSession_setRepeatingRequest(rightCaptureSession, &rightCaptureCb, 1, &rightCaptureRequest, nullptr);
 }
 
 /**
