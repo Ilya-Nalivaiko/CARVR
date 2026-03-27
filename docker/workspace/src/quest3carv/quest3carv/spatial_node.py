@@ -6,6 +6,8 @@ from geometry_msgs.msg import PoseStamped
 from cv_bridge import CvBridge
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+import cv2
+import os
 
 from quest3carv.tracker import StereoPointTracker
 
@@ -33,6 +35,37 @@ class SpatialReconstructionNode(Node):
             [self.sub_l, self.sub_r, self.sub_p], queue_size=10, slop=0.05
         )
         self.ts.registerCallback(self.process_bundle)
+
+    def save_debug_keyframe(self, img, points_3d, points_2d, ages):
+        """
+        Saves an annotated keyframe image with point distances and ages.
+        """
+        # Upscale factor for better text resolution
+        scale = 2.0
+        h, w = img.shape[:2]
+        debug_img = cv2.resize(img, (int(w * scale), int(h * scale)))
+
+        for i in range(len(points_2d)):
+            # Scale 2D coordinates
+            pt = (int(points_2d[i][0] * scale), int(points_2d[i][1] * scale))
+            
+            # Calculate Euclidean distance from the camera origin (0,0,0)
+            dist = np.linalg.norm(points_3d[i])
+            age = ages[i]
+            
+            # Draw point marker
+            cv2.circle(debug_img, pt, 4, (0, 255, 0), -1)
+            
+            # Format label: "Dist: X.Xm | Age: Y"
+            label = f"{dist:.2f}m | {age}"
+            cv2.putText(debug_img, label, (pt[0] + 5, pt[1] - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+
+        # Save to disk
+        kf_idx = len(self.keyframes)
+        filename = f"keyframe_{kf_idx:03d}.jpg"
+        cv2.imwrite(filename, debug_img)
+        self.get_logger().info(f"Saved debug keyframe: {filename}")
 
     def is_significant_move(self, current_pose_msg):
         if self.last_kf_pose is None: return True
@@ -75,15 +108,20 @@ class SpatialReconstructionNode(Node):
             self.last_kf_pose = msg_p.pose
             
             # Extract high-confidence points visible from this keyframe
-            points = self.tracker.get_confident_points()
+            points_3d, points_2d, ages = self.tracker.get_confident_points()
+            
+            # Call the new debug function
+            self.save_debug_keyframe(img_l, points_3d, points_2d, ages)
+            
+            # Proceed with adding to keyframes list
             self.keyframes.append({
                 'image': img_l,
                 'pose': mat,
-                'points': points
+                'points': points_3d
             })
             
             # TODO: Here is where we will call the C++ Carving node via a ROS Service/Action
-            self.get_logger().info(f"Keyframe saved with {len(points)} confident points.")
+            self.get_logger().info(f"Keyframe saved with {len(points_3d)} confident points.")
 
 def main():
     rclpy.init()

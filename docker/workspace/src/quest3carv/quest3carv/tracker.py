@@ -28,17 +28,35 @@ class StereoPointTracker:
         N = len(current_pts)
         if N == 0: return np.array([], dtype=bool)
 
-        # 1. Efficiently extract all patches into a (N, 15, 15) tensor
-        # We use advanced indexing to avoid a Python loop for extraction
+        h, w = current_gray.shape
         patches = []
-        for pt in current_pts:
+        valid_indices = []
+
+        for i, pt in enumerate(current_pts):
             u, v = int(pt[0]), int(pt[1])
-            patches.append(current_gray[v-self.half_p : v+self.half_p+1, 
-                                        u-self.half_p : u+self.half_p+1])
+            
+            # --- ADD BOUNDARY CHECK HERE ---
+            if (u < self.half_p or u >= w - self.half_p or 
+                v < self.half_p or v >= h - self.half_p):
+                continue 
+                
+            patch = current_gray[v-self.half_p : v+self.half_p+1, 
+                                u-self.half_p : u+self.half_p+1]
+            
+            # Double check shape just in case of rounding errors
+            if patch.shape == (self.patch_size, self.patch_size):
+                patches.append(patch)
+                valid_indices.append(i)
         
-        # Stack to (N, 15, 15)
+        # Fixed: return a mask that matches the input dimension N
+        full_mask = np.zeros(N, dtype=bool)
+        if not patches:
+            return full_mask
+
+        # Stack only the valid patches
         curr_tensor = np.stack(patches).astype(np.float32)
-        birth_tensor = self.birth_patches.astype(np.float32)
+        # We must index birth_patches to match the points that survived the boundary check
+        birth_tensor = self.birth_patches[valid_indices].astype(np.float32)
 
         # 2. Vectorized ZNCC math: (A - meanA) * (B - meanB) / (stdA * stdB)
         # Mean across the (15, 15) dimensions
@@ -55,7 +73,8 @@ class StereoPointTracker:
         norm = np.sqrt(np.sum(c_zero**2, axis=(1, 2)) * np.sum(b_zero**2, axis=(1, 2)))
         
         zncc_scores = correlation / (norm + 1e-6)
-        return zncc_scores > self.zncc_threshold
+        full_mask[valid_indices] = zncc_scores > self.zncc_threshold
+        return full_mask
 
     def ingest_frame(self, img_l, img_r, current_pose):
         gray_l = cv2.cvtColor(img_l, cv2.COLOR_BGR2GRAY)
@@ -76,25 +95,25 @@ class StereoPointTracker:
         status = status.reshape(-1).astype(bool)
 
         # 2. The Vectorized Veto
-        # Filter points that KLT lost first to reduce tensor size
-        valid_klt_indices = np.where(status)[0]
-        if len(valid_klt_indices) == 0:
+        # Fixed: We apply the KLT status to ALL state variables first to keep them aligned
+        self.points_2d_l = curr_pts_l[status]
+        self.birth_patches = self.birth_patches[status]
+        self.ages = self.ages[status]
+        self.points_3d = [self.points_3d[i] for i in range(len(status)) if status[i]]
+
+        if len(self.points_2d_l) == 0:
             self._replenish(gray_l, gray_r)
             return
 
-        # Temporary sub-selection for ZNCC check
-        candidate_pts = curr_pts_l[valid_klt_indices].reshape(-1, 2)
-        self.birth_patches = self.birth_patches[valid_klt_indices]
-        self.ages = self.ages[valid_klt_indices]
-        self.points_3d = [self.points_3d[i] for i in valid_klt_indices]
-
-        # Run the vectorized ZNCC
-        zncc_mask = self._batch_zncc_veto(gray_l, candidate_pts)
+        # Run the vectorized ZNCC on the points that survived KLT
+        zncc_mask = self._batch_zncc_veto(gray_l, self.points_2d_l)
         
         # 3. Final selection of points that survived KLT AND ZNCC
-        self.points_2d_l = candidate_pts[zncc_mask]
+        # Fixed: Update all state variables with zncc_mask
+        self.points_2d_l = self.points_2d_l[zncc_mask]
         self.birth_patches = self.birth_patches[zncc_mask]
         self.ages = self.ages[zncc_mask] + 1
+        self.points_3d = [self.points_3d[i] for i in range(len(zncc_mask)) if zncc_mask[i]]
         
         # Re-triangulate survived points for fresh 3D data
         # (Optional: In a full SLAM you'd use a filter here)
@@ -107,19 +126,20 @@ class StereoPointTracker:
         res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(
             gray_l, gray_r, self.points_2d_l.astype(np.float32), None, winSize=(21, 21)
         )
+        stat_r = stat_r.reshape(-1).astype(bool)
         
         for i in range(len(self.points_2d_l)):
             if stat_r[i]:
                 u_l, v = self.points_2d_l[i]
-                u_r = res_r[i][0][0]
+                u_r = res_r[i].ravel()[0]
                 new_3d.append(self._triangulate(u_l, u_r, v))
                 final_2d.append([u_l, v])
                 final_patches.append(self.birth_patches[i])
                 final_ages.append(self.ages[i])
 
         self.points_3d = new_3d
-        self.points_2d_l = np.array(final_2d)
-        self.birth_patches = np.array(final_patches)
+        self.points_2d_l = np.array(final_2d) if final_2d else np.empty((0, 2))
+        self.birth_patches = np.array(final_patches) if final_patches else None
         self.ages = np.array(final_ages)
 
         if len(self.points_2d_l) < self.max_points * 0.7:
@@ -139,11 +159,12 @@ class StereoPointTracker:
 
         # Stereo Match the new births
         res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(gray_l, gray_r, new_corners, None, winSize=(21, 21))
+        stat_r = stat_r.reshape(-1).astype(bool)
         
         for i in range(len(new_corners)):
             if stat_r[i]:
                 u_l, v = new_corners[i].ravel()
-                u_r = res_r[i][0][0]
+                u_r = res_r[i].ravel()[0]
                 
                 # Check for "Good Texture" before birth
                 patch = gray_l[int(v)-self.half_p : int(v)+self.half_p+1, 
@@ -164,3 +185,11 @@ class StereoPointTracker:
         disp = max(1.0, u_l - u_r)
         depth = (self.fx * self.baseline) / disp
         return np.array([(u_l - self.cx) * depth / self.fx, (v - self.cy) * depth / self.fy, depth])
+
+    def get_confident_points(self):
+        """Returns 3D coords, 2D coords, and ages for points exceeding min_age_confidence."""
+        mask = self.ages >= self.min_age_confidence
+        conf_3d = [self.points_3d[i] for i, val in enumerate(mask) if val]
+        conf_2d = self.points_2d_l[mask]
+        conf_ages = self.ages[mask]
+        return np.array(conf_3d), conf_2d, conf_ages
