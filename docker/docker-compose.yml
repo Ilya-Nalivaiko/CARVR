@@ -15,7 +15,7 @@ services:
       # Mount the actual X11 display socket so OpenCV can draw on your screen
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       # Mount your code so VS Code can edit it live
-      - ./src:/workspace
+      - ./workspace:/workspace
     # Keep it alive for VS Code
     command: tail -f /dev/null
     tty: true

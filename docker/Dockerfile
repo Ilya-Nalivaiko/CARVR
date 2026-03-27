@@ -7,10 +7,11 @@ RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     libglib2.0-0 \
     netcat \
+    ros-humble-cv-bridge ros-humble-message-filters ros-humble-image-transport \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the Python libraries for decoding and displaying the stream
-RUN pip3 install numpy opencv-python av
+RUN pip3 install "numpy<2.0" opencv-python av scipy setuptools
 
 # Setup the workspace directory
 WORKDIR /workspace
