@@ -17,7 +17,7 @@ class SpatialReconstructionNode(Node):
         self.bridge = CvBridge()
         
         # Initialize Tracker (Assume K and Baseline are known for Quest 3)
-        K = np.array([[320, 0, 320], [0, 320, 320], [0, 0, 1]]) # TODO get true focal length with the lab script
+        K = np.array([[460, 0, 320], [0, 460, 320], [0, 0, 1]]) # TODO get true focal length with the lab script
         self.tracker = StereoPointTracker(K, baseline=0.064)
         
         # Keyframe Logic State
@@ -104,11 +104,17 @@ class SpatialReconstructionNode(Node):
         
         # Step B: Keyframe Logic (Mapping)
         if self.is_significant_move(msg_p.pose):
-            self.get_logger().info("KEYFRAME TRIGGERED: New viewpoints added.")
+            self.get_logger().info("KEYFRAME TRIGGERED")
             self.last_kf_pose = msg_p.pose
             
             # Extract high-confidence points visible from this keyframe
             points_3d, points_2d, ages = self.tracker.get_confident_points()
+
+            if len(points_3d) < 50:
+                self.get_logger().info("Not many points")
+                return
+            
+            self.get_logger().info("New viewpoints added.")
             
             # Call the new debug function
             self.save_debug_keyframe(img_l, points_3d, points_2d, ages)

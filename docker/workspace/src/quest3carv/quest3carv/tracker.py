@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import os
 
 class StereoPointTracker:
     def __init__(self, K, baseline, max_points=500, min_age_confidence=10):
@@ -10,68 +11,55 @@ class StereoPointTracker:
         self.max_points = max_points
         self.min_age_confidence = min_age_confidence
         
-        # Hyperparameters
-        self.zncc_threshold = 0.85
-        self.patch_size = 15  # Must be odd
+        self.zncc_threshold = 0.55 
+        # FIX 2: Reduced window size for better resilience to VR head rotation/perspective skew
+        self.win_size_klt = (21, 21) 
+        self.patch_size = 15  
         self.half_p = self.patch_size // 2
         
         # State
-        self.points_3d = []      
+        self.points_3d = []      # Now strictly stores points in the GLOBAL WORLD FRAME
         self.points_2d_l = []    
-        self.birth_patches = None # Will be a (N, 15, 15) tensor
+        self.birth_patches = None 
         self.ages = np.array([], dtype=int)
         self.prev_gray_l = None
-        self.prev_pose = None
+        self.prev_pose = None 
+        
+        # Debugging & Logging State
+        self.frame_idx = 0
+        self.debug_path = "/workspace/debug"
+        self.stats_file = os.path.join(self.debug_path, "stats.txt")
+        if not os.path.exists(self.debug_path):
+            os.makedirs(self.debug_path)
+        with open(self.stats_file, 'w') as f:
+            f.write("frame,active,births,klt_lost,zncc_lost,stereo_lost\n")
 
     def _batch_zncc_veto(self, current_gray, current_pts):
-        """Vectorized ZNCC: Computes all scores in one NumPy operation."""
+        """Vectorized ZNCC check against birth patches."""
         N = len(current_pts)
         if N == 0: return np.array([], dtype=bool)
-
         h, w = current_gray.shape
-        patches = []
-        valid_indices = []
+        patches, valid_indices = [], []
 
         for i, pt in enumerate(current_pts):
             u, v = int(pt[0]), int(pt[1])
-            
-            # --- ADD BOUNDARY CHECK HERE ---
-            if (u < self.half_p or u >= w - self.half_p or 
-                v < self.half_p or v >= h - self.half_p):
+            if (u < self.half_p or u >= w - self.half_p or v < self.half_p or v >= h - self.half_p):
                 continue 
-                
-            patch = current_gray[v-self.half_p : v+self.half_p+1, 
-                                u-self.half_p : u+self.half_p+1]
-            
-            # Double check shape just in case of rounding errors
+            patch = current_gray[v-self.half_p : v+self.half_p+1, u-self.half_p : u+self.half_p+1]
             if patch.shape == (self.patch_size, self.patch_size):
                 patches.append(patch)
                 valid_indices.append(i)
         
-        # Fixed: return a mask that matches the input dimension N
         full_mask = np.zeros(N, dtype=bool)
-        if not patches:
-            return full_mask
+        if not patches: return full_mask
 
-        # Stack only the valid patches
         curr_tensor = np.stack(patches).astype(np.float32)
-        # We must index birth_patches to match the points that survived the boundary check
         birth_tensor = self.birth_patches[valid_indices].astype(np.float32)
-
-        # 2. Vectorized ZNCC math: (A - meanA) * (B - meanB) / (stdA * stdB)
-        # Mean across the (15, 15) dimensions
         mean_c = np.mean(curr_tensor, axis=(1, 2), keepdims=True)
         mean_b = np.mean(birth_tensor, axis=(1, 2), keepdims=True)
-        
-        c_zero = curr_tensor - mean_c
-        b_zero = birth_tensor - mean_b
-        
-        # Dot product across the patch
+        c_zero, b_zero = curr_tensor - mean_c, birth_tensor - mean_b
         correlation = np.sum(c_zero * b_zero, axis=(1, 2))
-        
-        # Normalization (Variance)
         norm = np.sqrt(np.sum(c_zero**2, axis=(1, 2)) * np.sum(b_zero**2, axis=(1, 2)))
-        
         zncc_scores = correlation / (norm + 1e-6)
         full_mask[valid_indices] = zncc_scores > self.zncc_threshold
         return full_mask
@@ -79,117 +67,154 @@ class StereoPointTracker:
     def ingest_frame(self, img_l, img_r, current_pose):
         gray_l = cv2.cvtColor(img_l, cv2.COLOR_BGR2GRAY)
         gray_r = cv2.cvtColor(img_r, cv2.COLOR_BGR2GRAY)
+        debug_out = img_l.copy()
+        stats = {'klt_lost': 0, 'zncc_lost': 0, 'stereo_lost': 0, 'births': 0}
 
         if self.prev_gray_l is None:
             self.prev_gray_l, self.prev_pose = gray_l, current_pose
-            self._replenish(gray_l, gray_r)
+            # Pass current_pose so replenish can anchor points in the world frame
+            stats['births'] = self._replenish(gray_l, gray_r, debug_out, current_pose)
+            self._finalize_debug(debug_out, stats)
             return
 
-        # 1. KLT Temporal Tracking (Frame-to-Frame)
-        # We pass self.points_2d_l as the initial guess
-        curr_pts_l, status, _ = cv2.calcOpticalFlowPyrLK(
-            self.prev_gray_l, gray_l, 
-            np.array(self.points_2d_l, dtype=np.float32), 
-            None, winSize=(21, 21)
-        )
-        status = status.reshape(-1).astype(bool)
+        # 1. Motion Prediction & KLT
+        initial_guesses = []
+        if len(self.points_3d) > 0:
+            tw2c = np.linalg.inv(current_pose)
+            R, t = tw2c[:3, :3], tw2c[:3, 3]
+            for p_world in self.points_3d:
+                # p_world is now correctly in the world frame, making this projection valid
+                p_cam = R @ p_world + t
+                if p_cam[2] > 0.1:
+                    initial_guesses.append([(self.fx * p_cam[0] / p_cam[2]) + self.cx, (self.fy * p_cam[1] / p_cam[2]) + self.cy])
+                else: initial_guesses.append([0, 0])
+            next_pts_guess = np.array(initial_guesses, dtype=np.float32).reshape(-1, 1, 2)
+        else: next_pts_guess = np.array(self.points_2d_l, dtype=np.float32).reshape(-1, 1, 2)
 
-        # 2. The Vectorized Veto
-        # Fixed: We apply the KLT status to ALL state variables first to keep them aligned
-        self.points_2d_l = curr_pts_l[status]
-        self.birth_patches = self.birth_patches[status]
-        self.ages = self.ages[status]
-        self.points_3d = [self.points_3d[i] for i in range(len(status)) if status[i]]
+        prev_pts_arr = np.array(self.points_2d_l, dtype=np.float32).reshape(-1, 1, 2)
+        curr_pts_l, status, _ = cv2.calcOpticalFlowPyrLK(self.prev_gray_l, gray_l, prev_pts_arr, next_pts_guess, 
+                                                        winSize=self.win_size_klt, maxLevel=4, flags=cv2.OPTFLOW_USE_INITIAL_FLOW)
+        
+        if status is not None:
+            status = status.reshape(-1).astype(bool)
+            stats['klt_lost'] = np.sum(~status)
+            for pt in self.points_2d_l[~status]:
+                cv2.drawMarker(debug_out, tuple(pt.astype(int)), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 8, 1)
+            
+            self.points_2d_l = curr_pts_l.reshape(-1, 2)[status]
+            self.birth_patches = self.birth_patches[status]
+            self.ages = self.ages[status]
+            self.points_3d = [self.points_3d[i] for i in range(len(status)) if status[i]]
+
+        # 2. Appearance Verification
+        if len(self.points_2d_l) > 0:
+            zncc_mask = self._batch_zncc_veto(gray_l, self.points_2d_l)
+            stats['zncc_lost'] = np.sum(~zncc_mask)
+            for pt in self.points_2d_l[~zncc_mask]:
+                cv2.circle(debug_out, tuple(pt.astype(int)), 5, (0, 165, 255), 1)
+            
+            self.points_2d_l = self.points_2d_l[zncc_mask]
+            self.birth_patches = self.birth_patches[zncc_mask]
+            self.ages = self.ages[zncc_mask] + 1
+            self.points_3d = [self.points_3d[i] for i in range(len(zncc_mask)) if zncc_mask[i]]
 
         if len(self.points_2d_l) == 0:
-            self._replenish(gray_l, gray_r)
+            stats['births'] = self._replenish(gray_l, gray_r, debug_out, current_pose)
+            self._finalize_debug(debug_out, stats)
             return
 
-        # Run the vectorized ZNCC on the points that survived KLT
-        zncc_mask = self._batch_zncc_veto(gray_l, self.points_2d_l)
+        # 3. RANGE-BASED STEREO MATCHING
+        stereo_guess = self.points_2d_l.copy().astype(np.float32)
+        stereo_guess[:, 0] -= 20 
         
-        # 3. Final selection of points that survived KLT AND ZNCC
-        # Fixed: Update all state variables with zncc_mask
-        self.points_2d_l = self.points_2d_l[zncc_mask]
-        self.birth_patches = self.birth_patches[zncc_mask]
-        self.ages = self.ages[zncc_mask] + 1
-        self.points_3d = [self.points_3d[i] for i in range(len(zncc_mask)) if zncc_mask[i]]
+        # Reduced stereo window size as well
+        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(gray_l, gray_r, self.points_2d_l.astype(np.float32).reshape(-1, 1, 2), 
+                                                    stereo_guess.reshape(-1, 1, 2), winSize=(21, 21), maxLevel=4, 
+                                                    flags=cv2.OPTFLOW_USE_INITIAL_FLOW)
         
-        # Re-triangulate survived points for fresh 3D data
-        # (Optional: In a full SLAM you'd use a filter here)
-        new_3d = []
-        final_2d = []
-        final_patches = []
-        final_ages = []
-
-        # 1D Stereo check for depth (Vectorize this via KLT)
-        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(
-            gray_l, gray_r, self.points_2d_l.astype(np.float32), None, winSize=(21, 21)
-        )
-        stat_r = stat_r.reshape(-1).astype(bool)
-        
-        for i in range(len(self.points_2d_l)):
-            if stat_r[i]:
+        if stat_r is not None:
+            stat_r, res_r = stat_r.reshape(-1).astype(bool), res_r.reshape(-1, 2)
+            final_3d, final_2d, final_patches, final_ages = [], [], [], []
+            for i in range(len(self.points_2d_l)):
                 u_l, v = self.points_2d_l[i]
-                u_r = res_r[i].ravel()[0]
-                new_3d.append(self._triangulate(u_l, u_r, v))
-                final_2d.append([u_l, v])
-                final_patches.append(self.birth_patches[i])
-                final_ages.append(self.ages[i])
+                u_r = res_r[i][0]
+                v_drift = abs(v - res_r[i][1])
+                
+                if stat_r[i] and v_drift < 4.0 and (u_l - u_r) > 1.0:
+                    # FIX 1: Triangulate local point, then transform to world coordinate frame
+                    local_pt = self._triangulate(u_l, u_r, v)
+                    world_pt = current_pose[:3, :3] @ local_pt + current_pose[:3, 3]
+                    
+                    final_3d.append(world_pt)
+                    final_2d.append([u_l, v])
+                    final_patches.append(self.birth_patches[i])
+                    final_ages.append(self.ages[i])
+                    cv2.circle(debug_out, (int(u_l), int(v)), 3, (0, 255, 0), -1)
+                else:
+                    stats['stereo_lost'] += 1
+                    cv2.drawMarker(debug_out, tuple(self.points_2d_l[i].astype(int)), (255, 0, 255), cv2.MARKER_CROSS, 6, 1)
 
-        self.points_3d = new_3d
-        self.points_2d_l = np.array(final_2d) if final_2d else np.empty((0, 2))
-        self.birth_patches = np.array(final_patches) if final_patches else None
-        self.ages = np.array(final_ages)
+            self.points_3d, self.points_2d_l = final_3d, np.array(final_2d) if final_2d else np.empty((0, 2))
+            self.birth_patches, self.ages = (np.array(final_patches) if final_patches else None), np.array(final_ages)
 
         if len(self.points_2d_l) < self.max_points * 0.7:
-            self._replenish(gray_l, gray_r)
+            stats['births'] += self._replenish(gray_l, gray_r, debug_out, current_pose)
 
         self.prev_gray_l, self.prev_pose = gray_l, current_pose
+        self._finalize_debug(debug_out, stats)
 
-    def _replenish(self, gray_l, gray_r):
-        """Adds new high-quality features to the pool."""
+    def _replenish(self, gray_l, gray_r, debug_out, current_pose):
+        """Finds new features using a broad disparity search and anchors them to the world frame."""
         mask = np.ones_like(gray_l) * 255
-        for pt in self.points_2d_l:
-            cv2.circle(mask, (int(pt[0]), int(pt[1])), 15, 0, -1)
+        for pt in self.points_2d_l: cv2.circle(mask, (int(pt[0]), int(pt[1])), 15, 0, -1)
+        new_corners = cv2.goodFeaturesToTrack(gray_l, maxCorners=self.max_points-len(self.points_2d_l), qualityLevel=0.02, minDistance=15, mask=mask)
+        if new_corners is None: return 0
 
-        new_corners = cv2.goodFeaturesToTrack(gray_l, maxCorners=self.max_points-len(self.points_2d_l),
-                                             qualityLevel=0.05, minDistance=20, mask=mask)
-        if new_corners is None: return
-
-        # Stereo Match the new births
-        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(gray_l, gray_r, new_corners, None, winSize=(21, 21))
-        stat_r = stat_r.reshape(-1).astype(bool)
+        initial_guess = new_corners.copy()
+        initial_guess[:, 0, 0] -= 20 
+        # Reduced window size here as well
+        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(gray_l, gray_r, new_corners, initial_guess, winSize=(21, 21), maxLevel=4, flags=cv2.OPTFLOW_USE_INITIAL_FLOW)
         
+        if stat_r is None: return 0
+        stat_r, res_r, new_corners = stat_r.reshape(-1).astype(bool), res_r.reshape(-1, 2), new_corners.reshape(-1, 2)
+        
+        birth_count = 0
         for i in range(len(new_corners)):
-            if stat_r[i]:
-                u_l, v = new_corners[i].ravel()
-                u_r = res_r[i].ravel()[0]
-                
-                # Check for "Good Texture" before birth
-                patch = gray_l[int(v)-self.half_p : int(v)+self.half_p+1, 
-                               int(u_l)-self.half_p : int(u_l)+self.half_p+1]
-                if patch.shape != (self.patch_size, self.patch_size): continue
-                
-                # Texture check (Variance)
-                if np.var(patch) < 100: continue 
+            u_l, v = new_corners[i]
+            u_r = res_r[i][0]
+            if stat_r[i] and (u_l - u_r) > 1.0:
+                patch = gray_l[int(v)-self.half_p : int(v)+self.half_p+1, int(u_l)-self.half_p : int(u_l)+self.half_p+1]
+                if patch.shape == (self.patch_size, self.patch_size) and np.var(patch) >= 30:
+                    
+                    # FIX 1: Triangulate local point, then transform to world coordinate frame
+                    local_pt = self._triangulate(u_l, u_r, v)
+                    world_pt = current_pose[:3, :3] @ local_pt + current_pose[:3, 3]
+                    
+                    self.points_2d_l = np.vstack([self.points_2d_l, [u_l, v]]) if len(self.points_2d_l) > 0 else np.array([[u_l, v]])
+                    self.points_3d.append(world_pt)
+                    self.ages = np.append(self.ages, 0)
+                    if self.birth_patches is None: self.birth_patches = np.array([patch])
+                    else: self.birth_patches = np.append(self.birth_patches, [patch], axis=0)
+                    cv2.drawMarker(debug_out, (int(u_l), int(v)), (255, 255, 0), cv2.MARKER_DIAMOND, 6, 1)
+                    birth_count += 1
+        return birth_count
 
-                self.points_2d_l = np.vstack([self.points_2d_l, [u_l, v]]) if len(self.points_2d_l) > 0 else np.array([[u_l, v]])
-                self.points_3d.append(self._triangulate(u_l, u_r, v))
-                self.ages = np.append(self.ages, 0)
-                
-                if self.birth_patches is None: self.birth_patches = np.array([patch])
-                else: self.birth_patches = np.append(self.birth_patches, [patch], axis=0)
+    def _finalize_debug(self, debug_out, stats):
+        """Logs metrics to stats.txt and saves debug image."""
+        active_count = len(self.points_2d_l)
+        cv2.putText(debug_out, f"F:{self.frame_idx} Pts:{active_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.imwrite(f"{self.debug_path}/frame_{self.frame_idx:04d}.jpg", debug_out)
+        with open(self.stats_file, 'a') as f:
+            f.write(f"{self.frame_idx},{active_count},{stats['births']},{stats['klt_lost']},{stats['zncc_lost']},{stats['stereo_lost']}\n")
+        self.frame_idx += 1
 
     def _triangulate(self, u_l, u_r, v):
+        """Returns the 3D point in the LOCAL camera coordinate frame."""
         disp = max(1.0, u_l - u_r)
         depth = (self.fx * self.baseline) / disp
         return np.array([(u_l - self.cx) * depth / self.fx, (v - self.cy) * depth / self.fy, depth])
 
     def get_confident_points(self):
-        """Returns 3D coords, 2D coords, and ages for points exceeding min_age_confidence."""
+        """Returns points exceeding min_age_confidence."""
         mask = self.ages >= self.min_age_confidence
-        conf_3d = [self.points_3d[i] for i, val in enumerate(mask) if val]
-        conf_2d = self.points_2d_l[mask]
-        conf_ages = self.ages[mask]
-        return np.array(conf_3d), conf_2d, conf_ages
+        return np.array([self.points_3d[i] for i, val in enumerate(mask) if val]), self.points_2d_l[mask], self.ages[mask]

@@ -850,11 +850,11 @@ void InitStreamContext(StreamContext& ctx, const char* ip, int port, const char*
     ctx.codec = AMediaCodec_createEncoderByType("video/avc");
     AMediaFormat* format = AMediaFormat_new();
     AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, "video/avc");
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, 1280);
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, 1280);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, 640);
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, 640);
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_BIT_RATE, 10000000); 
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_FRAME_RATE, 30);
-    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1); 
+    AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 0);
     AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, 2130708361); 
 
     AMediaCodec_configure(ctx.codec, format, nullptr, nullptr, AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
