@@ -15,7 +15,7 @@ class SpatialReconstructionNode(Node):
         self.bridge = CvBridge()
         
         # Initialize Tracker (Assume K and Baseline are known for Quest 3)
-        K = np.array([[700, 0, 640], [0, 700, 640], [0, 0, 1]]) # Placeholder
+        K = np.array([[320, 0, 320], [0, 320, 320], [0, 0, 1]]) # TODO get true focal length with the lab script
         self.tracker = StereoPointTracker(K, baseline=0.064)
         
         # Keyframe Logic State

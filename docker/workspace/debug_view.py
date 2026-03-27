@@ -6,7 +6,7 @@ import numpy as np
 import multiprocessing as mp
 
 # Configuration
-WIDTH, HEIGHT = 1280, 1280
+WIDTH, HEIGHT = 640, 640
 UUID = b"CMPUT428_POSE_ID"
 POSE_STRUCT_FMT = "<q7f"
 
