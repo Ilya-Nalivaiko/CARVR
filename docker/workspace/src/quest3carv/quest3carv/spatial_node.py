@@ -16,6 +16,10 @@ class SpatialReconstructionNode(Node):
         super().__init__('spatial_recon')
         self.bridge = CvBridge()
         
+        # Configuration for Keyframe Debugging
+        self.save_kf_images = False
+        self.show_kf_images = True
+        
         # Initialize Tracker (Assume K and Baseline are known for Quest 3)
         K = np.array([[460, 0, 320], [0, 460, 320], [0, 0, 1]]) # TODO get true focal length with the lab script
         self.tracker = StereoPointTracker(K, baseline=0.064)
@@ -36,12 +40,17 @@ class SpatialReconstructionNode(Node):
         )
         self.ts.registerCallback(self.process_bundle)
 
-    def save_debug_keyframe(self, img, points_3d, points_2d, ages):
+    def visualize_keyframe(self, img, points_3d, points_2d, ages):
         """
-        Saves an annotated keyframe image with point distances and ages.
+        Processes an annotated keyframe image with point distances and ages.
+        Can optionally save to disk or display live via OpenCV.
         """
+        # Fast exit if we aren't displaying or saving
+        if not self.save_kf_images and not self.show_kf_images:
+            return
+
         # Upscale factor for better text resolution
-        scale = 2.0
+        scale = 1
         h, w = img.shape[:2]
         debug_img = cv2.resize(img, (int(w * scale), int(h * scale)))
 
@@ -61,11 +70,15 @@ class SpatialReconstructionNode(Node):
             cv2.putText(debug_img, label, (pt[0] + 5, pt[1] - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
 
-        # Save to disk
-        kf_idx = len(self.keyframes)
-        filename = f"keyframe_{kf_idx:03d}.jpg"
-        cv2.imwrite(filename, debug_img)
-        self.get_logger().info(f"Saved debug keyframe: {filename}")
+        if self.save_kf_images:
+            kf_idx = len(self.keyframes)
+            filename = f"keyframe_{kf_idx:03d}.jpg"
+            cv2.imwrite(filename, debug_img)
+            self.get_logger().info(f"Saved debug keyframe: {filename}")
+
+        if self.show_kf_images:
+            cv2.imshow("Keyframe Triggered", debug_img)
+            cv2.waitKey(1)  # Required to pump OpenCV GUI events
 
     def is_significant_move(self, current_pose_msg):
         if self.last_kf_pose is None: return True
@@ -110,14 +123,14 @@ class SpatialReconstructionNode(Node):
             # Extract high-confidence points visible from this keyframe
             points_3d, points_2d, ages = self.tracker.get_confident_points()
 
-            if len(points_3d) < 50:
+            if len(points_3d) < 20:
                 self.get_logger().info("Not many points")
                 return
             
             self.get_logger().info("New viewpoints added.")
             
-            # Call the new debug function
-            self.save_debug_keyframe(img_l, points_3d, points_2d, ages)
+            # Call the updated visualization function
+            self.visualize_keyframe(img_l, points_3d, points_2d, ages)
             
             # Proceed with adding to keyframes list
             self.keyframes.append({
@@ -132,3 +145,6 @@ class SpatialReconstructionNode(Node):
 def main():
     rclpy.init()
     rclpy.spin(SpatialReconstructionNode())
+
+if __name__ == '__main__':
+    main()

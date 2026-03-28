@@ -29,10 +29,14 @@ MIN_DISPARITY = 1.0              # Minimum disparity allowed (prevents depth app
 MIN_DEPTH_PROJ = 0.1             # Minimum depth required to project 3D points back to 2D
 
 # Debugging & Logging
-SAVE_DEBUG_IMAGES = True
+SAVE_DEBUG_IMAGES = False         # Save tracker frames to disk
+SHOW_DEBUG_IMAGES = True         # Display tracker frames in a live OpenCV window
 SAVE_DEBUG_STATS = True
 DEBUG_DIR = "/workspace/debug"
 STATS_FILENAME = "stats.txt"
+
+# Helper flag so we don't draw unnecessarily
+DRAW_DEBUG = SAVE_DEBUG_IMAGES or SHOW_DEBUG_IMAGES
 
 # ==============================================================================
 
@@ -104,7 +108,7 @@ class StereoPointTracker:
     def ingest_frame(self, img_l, img_r, current_pose):
         gray_l = cv2.cvtColor(img_l, cv2.COLOR_BGR2GRAY)
         gray_r = cv2.cvtColor(img_r, cv2.COLOR_BGR2GRAY)
-        debug_out = img_l.copy() if SAVE_DEBUG_IMAGES else None
+        debug_out = img_l.copy() if DRAW_DEBUG else None
         stats = {'klt_lost': 0, 'zncc_lost': 0, 'stereo_lost': 0, 'births': 0}
 
         if self.prev_gray_l is None:
@@ -137,7 +141,7 @@ class StereoPointTracker:
         if status is not None:
             status = status.reshape(-1).astype(bool)
             stats['klt_lost'] = np.sum(~status)
-            if SAVE_DEBUG_IMAGES:
+            if DRAW_DEBUG:
                 for pt in self.points_2d_l[~status]:
                     cv2.drawMarker(debug_out, tuple(pt.astype(int)), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 8, 1)
             
@@ -150,7 +154,7 @@ class StereoPointTracker:
         if len(self.points_2d_l) > 0:
             zncc_mask = self._batch_zncc_veto(gray_l, self.points_2d_l)
             stats['zncc_lost'] = np.sum(~zncc_mask)
-            if SAVE_DEBUG_IMAGES:
+            if DRAW_DEBUG:
                 for pt in self.points_2d_l[~zncc_mask]:
                     cv2.circle(debug_out, tuple(pt.astype(int)), 5, (0, 165, 255), 1)
             
@@ -190,11 +194,11 @@ class StereoPointTracker:
                     final_2d.append([u_l, v])
                     final_patches.append(self.birth_patches[i])
                     final_ages.append(self.ages[i])
-                    if SAVE_DEBUG_IMAGES:
+                    if DRAW_DEBUG:
                         cv2.circle(debug_out, (int(u_l), int(v)), 3, (0, 255, 0), -1)
                 else:
                     stats['stereo_lost'] += 1
-                    if SAVE_DEBUG_IMAGES:
+                    if DRAW_DEBUG:
                         cv2.drawMarker(debug_out, tuple(self.points_2d_l[i].astype(int)), (255, 0, 255), cv2.MARKER_CROSS, 6, 1)
 
             self.points_3d, self.points_2d_l = final_3d, np.array(final_2d) if final_2d else np.empty((0, 2))
@@ -249,18 +253,24 @@ class StereoPointTracker:
                     else: 
                         self.birth_patches = np.append(self.birth_patches, [patch], axis=0)
                         
-                    if SAVE_DEBUG_IMAGES and debug_out is not None:
+                    if DRAW_DEBUG and debug_out is not None:
                         cv2.drawMarker(debug_out, (int(u_l), int(v)), (255, 255, 0), cv2.MARKER_DIAMOND, 6, 1)
                     birth_count += 1
         return birth_count
 
     def _finalize_debug(self, debug_out, stats):
-        """Logs metrics to stats.txt and saves debug image if configured."""
+        """Logs metrics to stats.txt and handles live display / saving of debug images."""
         active_count = len(self.points_2d_l)
         
-        if SAVE_DEBUG_IMAGES and debug_out is not None:
+        if DRAW_DEBUG and debug_out is not None:
             cv2.putText(debug_out, f"F:{self.frame_idx} Pts:{active_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.imwrite(os.path.join(DEBUG_DIR, f"frame_{self.frame_idx:04d}.jpg"), debug_out)
+            
+            if SAVE_DEBUG_IMAGES:
+                cv2.imwrite(os.path.join(DEBUG_DIR, f"frame_{self.frame_idx:04d}.jpg"), debug_out)
+            
+            if SHOW_DEBUG_IMAGES:
+                cv2.imshow("Stereo Tracker Live", debug_out)
+                cv2.waitKey(1)  # Required to pump OpenCV GUI events
             
         if SAVE_DEBUG_STATS:
             with open(self.stats_file, 'a') as f:
