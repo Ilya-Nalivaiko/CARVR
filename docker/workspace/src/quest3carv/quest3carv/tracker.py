@@ -2,23 +2,57 @@ import cv2
 import numpy as np
 import os
 
+# ==============================================================================
+# GLOBAL CONFIGURATION PARAMETERS
+# ==============================================================================
+
+# Feature Detection & Replenishment
+MAX_POINTS = 500
+MIN_AGE_CONFIDENCE = 10
+REPLENISH_THRESHOLD_RATIO = 0.7  # Trigger replenish if active points < (MAX_POINTS * this)
+GFTT_QUALITY_LEVEL = 0.02        # cv2.goodFeaturesToTrack quality level
+GFTT_MIN_DISTANCE = 15           # cv2.goodFeaturesToTrack min distance
+MIN_PATCH_VARIANCE = 30.0        # Minimum texture variance required to accept a new feature
+
+# Optical Flow (KLT) Parameters
+KLT_WIN_SIZE = (21, 21)
+KLT_MAX_LEVEL = 4
+
+# Appearance Verification (ZNCC) Parameters
+ZNCC_THRESHOLD = 0.55
+PATCH_SIZE = 15                  # Must be an odd number
+
+# Stereo Matching & Depth Constraints
+STEREO_DISP_GUESS = 20           # Initial left-shift guess (pixels) for right eye stereo match
+MAX_V_DRIFT = 4.0                # Maximum allowed vertical drift (pixels) for epipolar constraint
+MIN_DISPARITY = 1.0              # Minimum disparity allowed (prevents depth approaching infinity)
+MIN_DEPTH_PROJ = 0.1             # Minimum depth required to project 3D points back to 2D
+
+# Debugging & Logging
+SAVE_DEBUG_IMAGES = True
+SAVE_DEBUG_STATS = True
+DEBUG_DIR = "/workspace/debug"
+STATS_FILENAME = "stats.txt"
+
+# ==============================================================================
+
 class StereoPointTracker:
-    def __init__(self, K, baseline, max_points=500, min_age_confidence=10):
+    def __init__(self, K, baseline):
         self.K = K
         self.fx, self.fy = K[0, 0], K[1, 1]
         self.cx, self.cy = K[0, 2], K[1, 2]
         self.baseline = baseline
-        self.max_points = max_points
-        self.min_age_confidence = min_age_confidence
         
-        self.zncc_threshold = 0.55 
-        # FIX 2: Reduced window size for better resilience to VR head rotation/perspective skew
-        self.win_size_klt = (21, 21) 
-        self.patch_size = 15  
+        # Load configurable parameters from globals
+        self.max_points = MAX_POINTS
+        self.min_age_confidence = MIN_AGE_CONFIDENCE
+        self.zncc_threshold = ZNCC_THRESHOLD
+        self.win_size_klt = KLT_WIN_SIZE
+        self.patch_size = PATCH_SIZE
         self.half_p = self.patch_size // 2
         
         # State
-        self.points_3d = []      # Now strictly stores points in the GLOBAL WORLD FRAME
+        self.points_3d = []      
         self.points_2d_l = []    
         self.birth_patches = None 
         self.ages = np.array([], dtype=int)
@@ -27,12 +61,15 @@ class StereoPointTracker:
         
         # Debugging & Logging State
         self.frame_idx = 0
-        self.debug_path = "/workspace/debug"
-        self.stats_file = os.path.join(self.debug_path, "stats.txt")
-        if not os.path.exists(self.debug_path):
-            os.makedirs(self.debug_path)
-        with open(self.stats_file, 'w') as f:
-            f.write("frame,active,births,klt_lost,zncc_lost,stereo_lost\n")
+        self.stats_file = os.path.join(DEBUG_DIR, STATS_FILENAME)
+        
+        if SAVE_DEBUG_IMAGES or SAVE_DEBUG_STATS:
+            if not os.path.exists(DEBUG_DIR):
+                os.makedirs(DEBUG_DIR)
+                
+        if SAVE_DEBUG_STATS:
+            with open(self.stats_file, 'w') as f:
+                f.write("frame,active,births,klt_lost,zncc_lost,stereo_lost\n")
 
     def _batch_zncc_veto(self, current_gray, current_pts):
         """Vectorized ZNCC check against birth patches."""
@@ -67,12 +104,11 @@ class StereoPointTracker:
     def ingest_frame(self, img_l, img_r, current_pose):
         gray_l = cv2.cvtColor(img_l, cv2.COLOR_BGR2GRAY)
         gray_r = cv2.cvtColor(img_r, cv2.COLOR_BGR2GRAY)
-        debug_out = img_l.copy()
+        debug_out = img_l.copy() if SAVE_DEBUG_IMAGES else None
         stats = {'klt_lost': 0, 'zncc_lost': 0, 'stereo_lost': 0, 'births': 0}
 
         if self.prev_gray_l is None:
             self.prev_gray_l, self.prev_pose = gray_l, current_pose
-            # Pass current_pose so replenish can anchor points in the world frame
             stats['births'] = self._replenish(gray_l, gray_r, debug_out, current_pose)
             self._finalize_debug(debug_out, stats)
             return
@@ -83,23 +119,27 @@ class StereoPointTracker:
             tw2c = np.linalg.inv(current_pose)
             R, t = tw2c[:3, :3], tw2c[:3, 3]
             for p_world in self.points_3d:
-                # p_world is now correctly in the world frame, making this projection valid
                 p_cam = R @ p_world + t
-                if p_cam[2] > 0.1:
+                if p_cam[2] > MIN_DEPTH_PROJ:
                     initial_guesses.append([(self.fx * p_cam[0] / p_cam[2]) + self.cx, (self.fy * p_cam[1] / p_cam[2]) + self.cy])
-                else: initial_guesses.append([0, 0])
+                else: 
+                    initial_guesses.append([0, 0])
             next_pts_guess = np.array(initial_guesses, dtype=np.float32).reshape(-1, 1, 2)
-        else: next_pts_guess = np.array(self.points_2d_l, dtype=np.float32).reshape(-1, 1, 2)
+        else: 
+            next_pts_guess = np.array(self.points_2d_l, dtype=np.float32).reshape(-1, 1, 2)
 
         prev_pts_arr = np.array(self.points_2d_l, dtype=np.float32).reshape(-1, 1, 2)
-        curr_pts_l, status, _ = cv2.calcOpticalFlowPyrLK(self.prev_gray_l, gray_l, prev_pts_arr, next_pts_guess, 
-                                                        winSize=self.win_size_klt, maxLevel=4, flags=cv2.OPTFLOW_USE_INITIAL_FLOW)
+        curr_pts_l, status, _ = cv2.calcOpticalFlowPyrLK(
+            self.prev_gray_l, gray_l, prev_pts_arr, next_pts_guess, 
+            winSize=self.win_size_klt, maxLevel=KLT_MAX_LEVEL, flags=cv2.OPTFLOW_USE_INITIAL_FLOW
+        )
         
         if status is not None:
             status = status.reshape(-1).astype(bool)
             stats['klt_lost'] = np.sum(~status)
-            for pt in self.points_2d_l[~status]:
-                cv2.drawMarker(debug_out, tuple(pt.astype(int)), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 8, 1)
+            if SAVE_DEBUG_IMAGES:
+                for pt in self.points_2d_l[~status]:
+                    cv2.drawMarker(debug_out, tuple(pt.astype(int)), (0, 0, 255), cv2.MARKER_TILTED_CROSS, 8, 1)
             
             self.points_2d_l = curr_pts_l.reshape(-1, 2)[status]
             self.birth_patches = self.birth_patches[status]
@@ -110,8 +150,9 @@ class StereoPointTracker:
         if len(self.points_2d_l) > 0:
             zncc_mask = self._batch_zncc_veto(gray_l, self.points_2d_l)
             stats['zncc_lost'] = np.sum(~zncc_mask)
-            for pt in self.points_2d_l[~zncc_mask]:
-                cv2.circle(debug_out, tuple(pt.astype(int)), 5, (0, 165, 255), 1)
+            if SAVE_DEBUG_IMAGES:
+                for pt in self.points_2d_l[~zncc_mask]:
+                    cv2.circle(debug_out, tuple(pt.astype(int)), 5, (0, 165, 255), 1)
             
             self.points_2d_l = self.points_2d_l[zncc_mask]
             self.birth_patches = self.birth_patches[zncc_mask]
@@ -125,12 +166,13 @@ class StereoPointTracker:
 
         # 3. RANGE-BASED STEREO MATCHING
         stereo_guess = self.points_2d_l.copy().astype(np.float32)
-        stereo_guess[:, 0] -= 20 
+        stereo_guess[:, 0] -= STEREO_DISP_GUESS 
         
-        # Reduced stereo window size as well
-        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(gray_l, gray_r, self.points_2d_l.astype(np.float32).reshape(-1, 1, 2), 
-                                                    stereo_guess.reshape(-1, 1, 2), winSize=(21, 21), maxLevel=4, 
-                                                    flags=cv2.OPTFLOW_USE_INITIAL_FLOW)
+        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(
+            gray_l, gray_r, self.points_2d_l.astype(np.float32).reshape(-1, 1, 2), 
+            stereo_guess.reshape(-1, 1, 2), winSize=self.win_size_klt, maxLevel=KLT_MAX_LEVEL, 
+            flags=cv2.OPTFLOW_USE_INITIAL_FLOW
+        )
         
         if stat_r is not None:
             stat_r, res_r = stat_r.reshape(-1).astype(bool), res_r.reshape(-1, 2)
@@ -140,8 +182,7 @@ class StereoPointTracker:
                 u_r = res_r[i][0]
                 v_drift = abs(v - res_r[i][1])
                 
-                if stat_r[i] and v_drift < 4.0 and (u_l - u_r) > 1.0:
-                    # FIX 1: Triangulate local point, then transform to world coordinate frame
+                if stat_r[i] and v_drift < MAX_V_DRIFT and (u_l - u_r) > MIN_DISPARITY:
                     local_pt = self._triangulate(u_l, u_r, v)
                     world_pt = current_pose[:3, :3] @ local_pt + current_pose[:3, 3]
                     
@@ -149,15 +190,17 @@ class StereoPointTracker:
                     final_2d.append([u_l, v])
                     final_patches.append(self.birth_patches[i])
                     final_ages.append(self.ages[i])
-                    cv2.circle(debug_out, (int(u_l), int(v)), 3, (0, 255, 0), -1)
+                    if SAVE_DEBUG_IMAGES:
+                        cv2.circle(debug_out, (int(u_l), int(v)), 3, (0, 255, 0), -1)
                 else:
                     stats['stereo_lost'] += 1
-                    cv2.drawMarker(debug_out, tuple(self.points_2d_l[i].astype(int)), (255, 0, 255), cv2.MARKER_CROSS, 6, 1)
+                    if SAVE_DEBUG_IMAGES:
+                        cv2.drawMarker(debug_out, tuple(self.points_2d_l[i].astype(int)), (255, 0, 255), cv2.MARKER_CROSS, 6, 1)
 
             self.points_3d, self.points_2d_l = final_3d, np.array(final_2d) if final_2d else np.empty((0, 2))
             self.birth_patches, self.ages = (np.array(final_patches) if final_patches else None), np.array(final_ages)
 
-        if len(self.points_2d_l) < self.max_points * 0.7:
+        if len(self.points_2d_l) < (self.max_points * REPLENISH_THRESHOLD_RATIO):
             stats['births'] += self._replenish(gray_l, gray_r, debug_out, current_pose)
 
         self.prev_gray_l, self.prev_pose = gray_l, current_pose
@@ -166,14 +209,22 @@ class StereoPointTracker:
     def _replenish(self, gray_l, gray_r, debug_out, current_pose):
         """Finds new features using a broad disparity search and anchors them to the world frame."""
         mask = np.ones_like(gray_l) * 255
-        for pt in self.points_2d_l: cv2.circle(mask, (int(pt[0]), int(pt[1])), 15, 0, -1)
-        new_corners = cv2.goodFeaturesToTrack(gray_l, maxCorners=self.max_points-len(self.points_2d_l), qualityLevel=0.02, minDistance=15, mask=mask)
+        for pt in self.points_2d_l: 
+            cv2.circle(mask, (int(pt[0]), int(pt[1])), GFTT_MIN_DISTANCE, 0, -1)
+            
+        new_corners = cv2.goodFeaturesToTrack(
+            gray_l, maxCorners=self.max_points-len(self.points_2d_l), 
+            qualityLevel=GFTT_QUALITY_LEVEL, minDistance=GFTT_MIN_DISTANCE, mask=mask
+        )
         if new_corners is None: return 0
 
         initial_guess = new_corners.copy()
-        initial_guess[:, 0, 0] -= 20 
-        # Reduced window size here as well
-        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(gray_l, gray_r, new_corners, initial_guess, winSize=(21, 21), maxLevel=4, flags=cv2.OPTFLOW_USE_INITIAL_FLOW)
+        initial_guess[:, 0, 0] -= STEREO_DISP_GUESS 
+        
+        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(
+            gray_l, gray_r, new_corners, initial_guess, 
+            winSize=self.win_size_klt, maxLevel=KLT_MAX_LEVEL, flags=cv2.OPTFLOW_USE_INITIAL_FLOW
+        )
         
         if stat_r is None: return 0
         stat_r, res_r, new_corners = stat_r.reshape(-1).astype(bool), res_r.reshape(-1, 2), new_corners.reshape(-1, 2)
@@ -182,35 +233,44 @@ class StereoPointTracker:
         for i in range(len(new_corners)):
             u_l, v = new_corners[i]
             u_r = res_r[i][0]
-            if stat_r[i] and (u_l - u_r) > 1.0:
+            if stat_r[i] and (u_l - u_r) > MIN_DISPARITY:
                 patch = gray_l[int(v)-self.half_p : int(v)+self.half_p+1, int(u_l)-self.half_p : int(u_l)+self.half_p+1]
-                if patch.shape == (self.patch_size, self.patch_size) and np.var(patch) >= 30:
+                if patch.shape == (self.patch_size, self.patch_size) and np.var(patch) >= MIN_PATCH_VARIANCE:
                     
-                    # FIX 1: Triangulate local point, then transform to world coordinate frame
                     local_pt = self._triangulate(u_l, u_r, v)
                     world_pt = current_pose[:3, :3] @ local_pt + current_pose[:3, 3]
                     
                     self.points_2d_l = np.vstack([self.points_2d_l, [u_l, v]]) if len(self.points_2d_l) > 0 else np.array([[u_l, v]])
                     self.points_3d.append(world_pt)
                     self.ages = np.append(self.ages, 0)
-                    if self.birth_patches is None: self.birth_patches = np.array([patch])
-                    else: self.birth_patches = np.append(self.birth_patches, [patch], axis=0)
-                    cv2.drawMarker(debug_out, (int(u_l), int(v)), (255, 255, 0), cv2.MARKER_DIAMOND, 6, 1)
+                    
+                    if self.birth_patches is None: 
+                        self.birth_patches = np.array([patch])
+                    else: 
+                        self.birth_patches = np.append(self.birth_patches, [patch], axis=0)
+                        
+                    if SAVE_DEBUG_IMAGES and debug_out is not None:
+                        cv2.drawMarker(debug_out, (int(u_l), int(v)), (255, 255, 0), cv2.MARKER_DIAMOND, 6, 1)
                     birth_count += 1
         return birth_count
 
     def _finalize_debug(self, debug_out, stats):
-        """Logs metrics to stats.txt and saves debug image."""
+        """Logs metrics to stats.txt and saves debug image if configured."""
         active_count = len(self.points_2d_l)
-        cv2.putText(debug_out, f"F:{self.frame_idx} Pts:{active_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        cv2.imwrite(f"{self.debug_path}/frame_{self.frame_idx:04d}.jpg", debug_out)
-        with open(self.stats_file, 'a') as f:
-            f.write(f"{self.frame_idx},{active_count},{stats['births']},{stats['klt_lost']},{stats['zncc_lost']},{stats['stereo_lost']}\n")
+        
+        if SAVE_DEBUG_IMAGES and debug_out is not None:
+            cv2.putText(debug_out, f"F:{self.frame_idx} Pts:{active_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.imwrite(os.path.join(DEBUG_DIR, f"frame_{self.frame_idx:04d}.jpg"), debug_out)
+            
+        if SAVE_DEBUG_STATS:
+            with open(self.stats_file, 'a') as f:
+                f.write(f"{self.frame_idx},{active_count},{stats['births']},{stats['klt_lost']},{stats['zncc_lost']},{stats['stereo_lost']}\n")
+                
         self.frame_idx += 1
 
     def _triangulate(self, u_l, u_r, v):
         """Returns the 3D point in the LOCAL camera coordinate frame."""
-        disp = max(1.0, u_l - u_r)
+        disp = max(MIN_DISPARITY, u_l - u_r)
         depth = (self.fx * self.baseline) / disp
         return np.array([(u_l - self.cx) * depth / self.fx, (v - self.cy) * depth / self.fy, depth])
 
