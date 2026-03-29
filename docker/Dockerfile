@@ -6,8 +6,9 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     libgl1-mesa-glx \
     libglib2.0-0 \
-    netcat \
+    netcat nano\
     ros-humble-cv-bridge ros-humble-message-filters ros-humble-image-transport \
+    libcgal-dev libeigen3-dev \    
     && rm -rf /var/lib/apt/lists/*
 
 # Install the Python libraries for decoding and displaying the stream

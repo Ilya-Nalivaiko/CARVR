@@ -72,7 +72,7 @@ class SpatialReconstructionNode(Node):
 
         if self.save_kf_images:
             kf_idx = len(self.keyframes)
-            filename = f"keyframe_{kf_idx:03d}.jpg"
+            filename = f"/workspace/debug/keyframe_{kf_idx:03d}.jpg"
             cv2.imwrite(filename, debug_img)
             self.get_logger().info(f"Saved debug keyframe: {filename}")
 
