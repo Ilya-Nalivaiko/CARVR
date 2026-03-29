@@ -3,3 +3,4 @@ install/
 log/
 debug/
 keyframe_*
+*.obj
