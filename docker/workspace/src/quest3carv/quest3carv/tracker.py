@@ -6,31 +6,31 @@ import os
 # GLOBAL CONFIGURATION PARAMETERS
 # ==============================================================================
 
-# Feature Detection & Replenishment
-MAX_POINTS = 500
-MIN_AGE_CONFIDENCE = 5
-REPLENISH_THRESHOLD_RATIO = 0.7  # Trigger replenish if active points < (MAX_POINTS * this)
-GFTT_QUALITY_LEVEL = 0.02        # cv2.goodFeaturesToTrack quality level
-GFTT_MIN_DISTANCE = 15           # cv2.goodFeaturesToTrack min distance
-MIN_PATCH_VARIANCE = 30.0        # Minimum texture variance required to accept a new feature
+# Feature Detection (QUALITY OVER QUANTITY)
+MAX_POINTS = 250                 # Sliced in half. Only track the absolute best features.
+MIN_AGE_CONFIDENCE = 10          # Require 10 frames of survival before sending to C++.
+REPLENISH_THRESHOLD_RATIO = 0.8  # Top off frequently so we always have ~250 good points.
+GFTT_QUALITY_LEVEL = 0.08        # 4x Stricter! Reject soft edges; only take sharp, distinct corners.
+GFTT_MIN_DISTANCE = 40           # Force points to spread out. No more clumping on a single poster.
+MIN_PATCH_VARIANCE = 50.0        # Demand very high texture contrast for new points.
 
 # Optical Flow (KLT) Parameters
-KLT_WIN_SIZE = (21, 21)
+KLT_WIN_SIZE = (31, 31)          # Keep the wide search window for fast head movements.
 KLT_MAX_LEVEL = 4
 
 # Appearance Verification (ZNCC) Parameters
-ZNCC_THRESHOLD = 0.55
-PATCH_SIZE = 15                  # Must be an odd number
+ZNCC_THRESHOLD = 0.40            # A balanced threshold for perspective distortion.
+PATCH_SIZE = 15                  
 
 # Stereo Matching & Depth Constraints
-STEREO_DISP_GUESS = 20           # Initial left-shift guess (pixels) for right eye stereo match
-MAX_V_DRIFT = 4.0                # Maximum allowed vertical drift (pixels) for epipolar constraint
-MIN_DISPARITY = 1.0              # Minimum disparity allowed (prevents depth approaching infinity)
-MIN_DEPTH_PROJ = 0.1             # Minimum depth required to project 3D points back to 2D
+STEREO_DISP_GUESS = 20           
+MAX_V_DRIFT = 2.0                # STRICT EPIPOLAR RESTRAINT. If it drifts vertically, it's a false match. Kill it.
+MIN_DISPARITY = 1.0              
+MIN_DEPTH_PROJ = 0.1             
 
 # Debugging & Logging
-SAVE_DEBUG_IMAGES = False         # Save tracker frames to disk
-SHOW_DEBUG_IMAGES = False         # Display tracker frames in a live OpenCV window
+SAVE_DEBUG_IMAGES = False         
+SHOW_DEBUG_IMAGES = False         
 SAVE_DEBUG_STATS = False
 DEBUG_DIR = "/workspace/debug"
 STATS_FILENAME = "stats.txt"
@@ -61,7 +61,9 @@ class StereoPointTracker:
         self.birth_patches = None 
         self.ages = np.array([], dtype=int)
         self.prev_gray_l = None
-        self.prev_pose = None 
+        self.prev_pose = None
+        self.point_ids = np.array([], dtype=int)
+        self.next_global_id = 0
         
         # Debugging & Logging State
         self.frame_idx = 0
@@ -149,6 +151,7 @@ class StereoPointTracker:
             self.birth_patches = self.birth_patches[status]
             self.ages = self.ages[status]
             self.points_3d = [self.points_3d[i] for i in range(len(status)) if status[i]]
+            self.point_ids = self.point_ids[status]
 
         # 2. Appearance Verification
         if len(self.points_2d_l) > 0:
@@ -162,6 +165,7 @@ class StereoPointTracker:
             self.birth_patches = self.birth_patches[zncc_mask]
             self.ages = self.ages[zncc_mask] + 1
             self.points_3d = [self.points_3d[i] for i in range(len(zncc_mask)) if zncc_mask[i]]
+            self.point_ids = self.point_ids[zncc_mask]
 
         if len(self.points_2d_l) == 0:
             stats['births'] = self._replenish(gray_l, gray_r, debug_out, current_pose)
@@ -180,7 +184,7 @@ class StereoPointTracker:
         
         if stat_r is not None:
             stat_r, res_r = stat_r.reshape(-1).astype(bool), res_r.reshape(-1, 2)
-            final_3d, final_2d, final_patches, final_ages = [], [], [], []
+            final_3d, final_2d, final_patches, final_ages, final_ids = [], [], [], [], []
             for i in range(len(self.points_2d_l)):
                 u_l, v = self.points_2d_l[i]
                 u_r = res_r[i][0]
@@ -190,10 +194,15 @@ class StereoPointTracker:
                     local_pt = self._triangulate(u_l, u_r, v)
                     world_pt = current_pose[:3, :3] @ local_pt + current_pose[:3, 3]
                     
-                    final_3d.append(world_pt)
+                    # The older the point, the less we trust the new noisy stereo measurement
+                    alpha = max(0.1, 1.0 / (self.ages[i] + 1)) 
+                    smoothed_pt = (1.0 - alpha) * self.points_3d[i] + alpha * world_pt
+                    
+                    final_3d.append(smoothed_pt)
                     final_2d.append([u_l, v])
                     final_patches.append(self.birth_patches[i])
                     final_ages.append(self.ages[i])
+                    final_ids.append(self.point_ids[i]) # Keep the ID alive
                     if DRAW_DEBUG:
                         cv2.circle(debug_out, (int(u_l), int(v)), 3, (0, 255, 0), -1)
                 else:
@@ -203,6 +212,7 @@ class StereoPointTracker:
 
             self.points_3d, self.points_2d_l = final_3d, np.array(final_2d) if final_2d else np.empty((0, 2))
             self.birth_patches, self.ages = (np.array(final_patches) if final_patches else None), np.array(final_ages)
+            self.point_ids = np.array(final_ids, dtype=int)
 
         if len(self.points_2d_l) < (self.max_points * REPLENISH_THRESHOLD_RATIO):
             stats['births'] += self._replenish(gray_l, gray_r, debug_out, current_pose)
@@ -247,6 +257,8 @@ class StereoPointTracker:
                     self.points_2d_l = np.vstack([self.points_2d_l, [u_l, v]]) if len(self.points_2d_l) > 0 else np.array([[u_l, v]])
                     self.points_3d.append(world_pt)
                     self.ages = np.append(self.ages, 0)
+                    self.point_ids = np.append(self.point_ids, self.next_global_id)
+                    self.next_global_id += 1
                     
                     if self.birth_patches is None: 
                         self.birth_patches = np.array([patch])
@@ -287,4 +299,9 @@ class StereoPointTracker:
     def get_confident_points(self):
         """Returns points exceeding min_age_confidence."""
         mask = self.ages >= self.min_age_confidence
-        return np.array([self.points_3d[i] for i, val in enumerate(mask) if val]), self.points_2d_l[mask], self.ages[mask]
+        pts_3d = np.array([self.points_3d[i] for i, val in enumerate(mask) if val])
+        pts_2d = np.array([self.points_2d_l[i] for i, val in enumerate(mask) if val])
+        ages_filt = np.array([self.ages[i] for i, val in enumerate(mask) if val])
+        ids_filt = np.array([self.point_ids[i] for i, val in enumerate(mask) if val])
+
+        return pts_3d, pts_2d, ages_filt, ids_filt

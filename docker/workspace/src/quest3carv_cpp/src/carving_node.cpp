@@ -54,10 +54,24 @@ private:
             carver_.setPrincipleRays(current_rays);
 
             // Add Points and tie them to this camera's visibility list
-            for (const auto& pt : msg->points) {
-                carver_.addPoint(Eigen::Vector3d(pt.x, pt.y, pt.z));
-                int current_pt_idx = carver_.numPoints() - 1;
-                carver_.addVisibilityPair(current_cam_idx, current_pt_idx);
+            for (size_t i = 0; i < msg->points.size(); ++i) {
+                const auto& pt = msg->points[i];
+                uint32_t global_id = msg->point_ids[i];
+                int local_idx;
+
+                // Have we seen this specific physical point before?
+                if (global_id_to_local_idx_.count(global_id) > 0) {
+                    // YES: Just retrieve its index. Do NOT duplicate it in space.
+                    local_idx = global_id_to_local_idx_[global_id];
+                } else {
+                    // NO: This is a brand new feature. Add it to the math engine.
+                    carver_.addPoint(Eigen::Vector3d(pt.x, pt.y, pt.z));
+                    local_idx = carver_.numPoints() - 1;
+                    global_id_to_local_idx_[global_id] = local_idx; // Remember it!
+                }
+
+                // Tell the algorithm that THIS camera can see THIS specific point
+                carver_.addVisibilityPair(current_cam_idx, local_idx);
             }
 
             // 3. Build the CGAL Delaunay Triangulation
@@ -71,15 +85,44 @@ private:
             RCLCPP_INFO(this->get_logger(), "Carving tetrahedra...");
             carver_.TetrahedronBatchMethod(dt, false);
 
-            // 5. Extract Isosurface (The "Skin")
+            // 5. Extract Isosurface
             std::list<Eigen::Vector3d> tris;
-            int vote_threshold = 1; // Number of rays required to carve a tetrahedron
+            int vote_threshold = 1; 
             
-            // tetsToTris requires a non-const vector, so we pass a copy to protect internal state
             std::vector<Eigen::Vector3d> points_copy = carver_.getPoints();
             carver_.tetsToTris(dt, points_copy, tris, vote_threshold);
             
-            RCLCPP_INFO(this->get_logger(), "Mesh extracted! %zu triangles generated.", tris.size());
+            // --- NEW: Near-Field / FoV Edge Clipper ---
+            // Remove the artifact "wall" of triangles that borders the cameras
+            double near_clip_dist = 0.25; // cm away from head to clip
+            std::list<Eigen::Vector3d> filtered_tris;
+            const auto& cams = carver_.getCamCenters(); 
+            
+            for (const auto& tri : tris) {
+                int i0 = std::round(tri.x());
+                int i1 = std::round(tri.y());
+                int i2 = std::round(tri.z());
+                
+                // Calculate the physical center of the triangle
+                Eigen::Vector3d centroid = (points_copy[i0] + points_copy[i1] + points_copy[i2]) / 3.0;
+                
+                // Find the distance to the closest camera position
+                double min_cam_dist = std::numeric_limits<double>::max();
+                for (const auto& cam : cams) {
+                    double dist = (centroid - cam).norm();
+                    if (dist < min_cam_dist) {
+                        min_cam_dist = dist;
+                    }
+                }
+                
+                // Only keep the triangle if it's outside our 45cm clipping bubble
+                if (min_cam_dist > near_clip_dist) {
+                    filtered_tris.push_back(tri);
+                }
+            }
+            
+            tris = filtered_tris; // Replace the original list with the clean one
+            RCLCPP_INFO(this->get_logger(), "Mesh extracted & clipped! %zu clean triangles generated.", tris.size());
 
             // 6. Save and publish
             std::string obj_path = "/workspace/carved_room.obj"; 
@@ -140,6 +183,7 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mesh_;
     
     dlovi::FreespaceDelaunayAlgorithm carver_;
+    std::unordered_map<uint32_t, int> global_id_to_local_idx_; // Maps Python ID to C++ Array Index
 };
 
 int main(int argc, char **argv) {

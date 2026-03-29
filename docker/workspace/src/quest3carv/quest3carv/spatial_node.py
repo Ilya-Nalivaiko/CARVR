@@ -22,6 +22,10 @@ class SpatialReconstructionNode(Node):
         # Configuration for Keyframe Debugging
         self.save_kf_images = False
         self.show_kf_images = False
+        self.save_ply_clouds = True
+        self.output_dir = "/workspace/debug/clouds"
+        if self.save_ply_clouds and not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
         
         # Initialize Tracker (Assume K and Baseline are known for Quest 3)
         K = np.array([[460, 0, 320], [0, 460, 320], [0, 0, 1]]) # TODO get true focal length with the lab script
@@ -86,6 +90,55 @@ class SpatialReconstructionNode(Node):
             cv2.imshow("Keyframe Triggered", debug_img)
             cv2.waitKey(1)  # Required to pump OpenCV GUI events
 
+    def save_global_ply(self):
+        """
+        Gathers all keyframe points and camera positions, 
+        transforms them to world space, and saves a colored PLY file.
+        """
+        if not self.keyframes:
+            return
+
+        world_points = []
+        colors = []
+
+        for kf in self.keyframes:
+            pose = kf['pose']        # 4x4 matrix
+            pts_cam = kf['points']   # Nx3 array in camera frame
+
+            # 1. Add Camera Position (Red)
+            cam_pos = pose[:3, 3]
+            world_points.append(cam_pos)
+            colors.append((255, 0, 0)) # Red for camera
+
+            # 2. Transform Points to World Frame (Blue)
+            # points_world = R * points_cam + T
+            for pt in pts_cam:
+                # Apply rotation and translation
+                pt_world = pose[:3, :3] @ pt + pose[:3, 3]
+                world_points.append(pt_world)
+                colors.append((0, 0, 255)) # Blue for points
+
+        # Write to PLY file
+        kf_idx = len(self.keyframes)
+        filepath = os.path.join(self.output_dir, f"cloud_kf_{kf_idx:03d}.ply")
+        
+        with open(filepath, 'w') as f:
+            f.write("ply\n")
+            f.write("format ascii 1.0\n")
+            f.write(f"element vertex {len(world_points)}\n")
+            f.write("property float x\n")
+            f.write("property float y\n")
+            f.write("property float z\n")
+            f.write("property uchar red\n")
+            f.write("property uchar green\n")
+            f.write("property uchar blue\n")
+            f.write("end_header\n")
+            
+            for p, c in zip(world_points, colors):
+                f.write(f"{p[0]} {p[1]} {p[2]} {c[0]} {c[1]} {c[2]}\n")
+        
+        self.get_logger().info(f"Saved global cloud to {filepath}")
+
     def is_significant_move(self, current_pose_msg):
         if self.last_kf_pose is None: return True
         
@@ -114,7 +167,20 @@ class SpatialReconstructionNode(Node):
         # Convert PoseStamped to 4x4 for the tracker
         curr_q = [msg_p.pose.orientation.x, msg_p.pose.orientation.y, msg_p.pose.orientation.z, msg_p.pose.orientation.w]
         curr_t = [msg_p.pose.position.x, msg_p.pose.position.y, msg_p.pose.position.z]
-        mat = np.eye(4)
+        
+        head_mat = np.eye(4)
+        head_mat[:3, :3] = R.from_quat(curr_q).as_matrix()
+        head_mat[:3, 3] = curr_t
+        
+        # --- NEW: Extrinsic Offset (Head to Left Camera) ---
+        # Shifts the origin ~32mm Left, ~15mm Down, ~30mm Forward (where the camera is more or less relative to the head)
+        T_head_to_cam = np.eye(4)
+        T_head_to_cam[0, 3] = -0.032  
+        T_head_to_cam[1, 3] = -0.015  
+        T_head_to_cam[2, 3] =  0.030  
+        
+        # Apply the offset in the local frame
+        mat = head_mat @ T_head_to_cam
         mat[:3, :3] = R.from_quat(curr_q).as_matrix()
         mat[:3, 3] = curr_t
         
@@ -127,7 +193,7 @@ class SpatialReconstructionNode(Node):
             self.last_kf_pose = msg_p.pose
             
             # Extract high-confidence points visible from this keyframe
-            points_3d, points_2d, ages = self.tracker.get_confident_points()
+            points_3d, points_2d, ages, ids_3d = self.tracker.get_confident_points()
 
             if len(points_3d) < 20:
                 self.get_logger().info(f"Not many points ({len(points_3d)})")
@@ -135,8 +201,10 @@ class SpatialReconstructionNode(Node):
             
             self.get_logger().info("New viewpoints added.")
             
-            # Call the updated visualization function
+            # Call the updated visualization functions
             self.visualize_keyframe(img_l, points_3d, points_2d, ages)
+            if self.save_ply_clouds:
+                self.save_global_ply()
             
             # Proceed with adding to keyframes list
             self.keyframes.append({
@@ -152,7 +220,7 @@ class SpatialReconstructionNode(Node):
             kf_msg.camera_pose = msg_p.pose
             
             # Pack the 3D points (WITH NOISE FILTERING)
-            for pt in points_3d:
+            for i, pt in enumerate(points_3d):
                 # Calculate distance from camera to point
                 dist = np.linalg.norm(pt) 
                 
@@ -161,6 +229,7 @@ class SpatialReconstructionNode(Node):
                     p = Point()
                     p.x, p.y, p.z = float(pt[0]), float(pt[1]), float(pt[2])
                     kf_msg.points.append(p)
+                    kf_msg.point_ids.append(int(ids_3d[i]))
                 
             self.kf_pub.publish(kf_msg)
             self.get_logger().info(f"Published KeyframeData with {len(points_3d)} points to C++ Carving Node.")
