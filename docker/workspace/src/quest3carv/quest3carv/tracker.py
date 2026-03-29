@@ -29,10 +29,10 @@ MIN_DISPARITY = 1.0
 MIN_DEPTH_PROJ = 0.1             
 
 # Debugging & Logging
-SAVE_DEBUG_IMAGES = False         
+SAVE_DEBUG_IMAGES = True         
 SHOW_DEBUG_IMAGES = False         
-SAVE_DEBUG_STATS = False
-DEBUG_DIR = "/workspace/debug"
+SAVE_DEBUG_STATS = True
+DEBUG_DIR = "/workspace/debug/tracker_frames"
 STATS_FILENAME = "stats.txt"
 
 # Helper flag so we don't draw unnecessarily

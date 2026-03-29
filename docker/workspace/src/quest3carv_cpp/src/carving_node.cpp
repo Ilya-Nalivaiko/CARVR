@@ -6,22 +6,24 @@
 
 #include <Eigen/Dense>
 #include "quest3carv_cpp/FreespaceDelaunayAlgorithm.h"
+#include <unordered_map>
 
 class CarvingNode : public rclcpp::Node {
 public:
-    CarvingNode() : Node("carving_node") {
+    CarvingNode() : Node("carving_node"), keyframe_count_(0), process_every_n_frames_(5) {
         sub_kf_ = this->create_subscription<quest3carv_interfaces::msg::KeyframeData>(
             "quest3carv/keyframe", 10, 
             std::bind(&CarvingNode::keyframe_callback, this, std::placeholders::_1));
 
         pub_mesh_ = this->create_publisher<visualization_msgs::msg::Marker>("quest3carv/carved_mesh", 10);
 
-        RCLCPP_INFO(this->get_logger(), "Freespace Carving Node Initialized! Waiting for Keyframes...");
+        RCLCPP_INFO(this->get_logger(), "Freespace Carving Node Initialized! Throttled to map every %d keyframes.", process_every_n_frames_);
     }
 
 private:
     void keyframe_callback(const quest3carv_interfaces::msg::KeyframeData::SharedPtr msg) {
-        RCLCPP_INFO(this->get_logger(), "--- NEW KEYFRAME RECEIVED (%zu points) ---", msg->points.size());
+        keyframe_count_++;
+        RCLCPP_INFO(this->get_logger(), "--- INGESTING KEYFRAME %d (%zu points) ---", keyframe_count_, msg->points.size());
 
         try {
             // 1. Extract Camera Optic Center (O)
@@ -40,61 +42,60 @@ private:
             );
             Eigen::Vector3d look_dir = q * Eigen::Vector3d(0, 0, 1);
 
-            // 2. Feed the Carver State via Proper API
-            carver_.addCamCenter(cam_center); // This safely creates the corresponding visibility list!
+            // 2. Feed the Carver State via Proper API (Instant, No Lag)
+            carver_.addCamCenter(cam_center); 
             int current_cam_idx = carver_.numCams() - 1;
 
-            // Handle the missing "add" methods via fetch-append-set
             auto current_cams = carver_.getCams();
-            current_cams.push_back(cam_center); // Dummy copy
+            current_cams.push_back(cam_center); 
             carver_.setCams(current_cams);
 
             auto current_rays = carver_.getPrincipleRays();
             current_rays.push_back(look_dir);
             carver_.setPrincipleRays(current_rays);
 
-            // Add Points and tie them to this camera's visibility list
             for (size_t i = 0; i < msg->points.size(); ++i) {
                 const auto& pt = msg->points[i];
                 uint32_t global_id = msg->point_ids[i];
                 int local_idx;
 
-                // Have we seen this specific physical point before?
                 if (global_id_to_local_idx_.count(global_id) > 0) {
-                    // YES: Just retrieve its index. Do NOT duplicate it in space.
                     local_idx = global_id_to_local_idx_[global_id];
                 } else {
-                    // NO: This is a brand new feature. Add it to the math engine.
                     carver_.addPoint(Eigen::Vector3d(pt.x, pt.y, pt.z));
                     local_idx = carver_.numPoints() - 1;
-                    global_id_to_local_idx_[global_id] = local_idx; // Remember it!
+                    global_id_to_local_idx_[global_id] = local_idx; 
                 }
-
-                // Tell the algorithm that THIS camera can see THIS specific point
                 carver_.addVisibilityPair(current_cam_idx, local_idx);
             }
 
-            // 3. Build the CGAL Delaunay Triangulation
+            // --- THE THROTTLE GATE ---
+            // Only do the heavy math every N frames. Otherwise, exit the callback quickly.
+            if (keyframe_count_ % process_every_n_frames_ != 0) {
+                RCLCPP_INFO(this->get_logger(), "Data buffered. Waiting for frame %d to carve.", 
+                            keyframe_count_ + (process_every_n_frames_ - (keyframe_count_ % process_every_n_frames_)));
+                return; 
+            }
+
+            // 3. Build the CGAL Delaunay Triangulation (Heavy)
             dlovi::FreespaceDelaunayAlgorithm::Delaunay3 dt;
             const auto& all_points = carver_.getPoints();
             for (const auto& p : all_points) {
                 dt.insert(dlovi::FreespaceDelaunayAlgorithm::PointD3(p.x(), p.y(), p.z()));
             }
 
-            // 4. Run the Carving Algorithm!
+            // 4. Run the Carving Algorithm! (Very Heavy)
             RCLCPP_INFO(this->get_logger(), "Carving tetrahedra...");
             carver_.TetrahedronBatchMethod(dt, false);
 
-            // 5. Extract Isosurface
+            // 5. Extract Isosurface (The "Skin")
             std::list<Eigen::Vector3d> tris;
             int vote_threshold = 1; 
-            
             std::vector<Eigen::Vector3d> points_copy = carver_.getPoints();
             carver_.tetsToTris(dt, points_copy, tris, vote_threshold);
             
-            // --- NEW: Near-Field / FoV Edge Clipper ---
-            // Remove the artifact "wall" of triangles that borders the cameras
-            double near_clip_dist = 0.25; // cm away from head to clip
+            // Near-Field / FoV Edge Clipper
+            double near_clip_dist = 0.45; 
             std::list<Eigen::Vector3d> filtered_tris;
             const auto& cams = carver_.getCamCenters(); 
             
@@ -103,10 +104,8 @@ private:
                 int i1 = std::round(tri.y());
                 int i2 = std::round(tri.z());
                 
-                // Calculate the physical center of the triangle
                 Eigen::Vector3d centroid = (points_copy[i0] + points_copy[i1] + points_copy[i2]) / 3.0;
                 
-                // Find the distance to the closest camera position
                 double min_cam_dist = std::numeric_limits<double>::max();
                 for (const auto& cam : cams) {
                     double dist = (centroid - cam).norm();
@@ -115,20 +114,18 @@ private:
                     }
                 }
                 
-                // Only keep the triangle if it's outside our 45cm clipping bubble
                 if (min_cam_dist > near_clip_dist) {
                     filtered_tris.push_back(tri);
                 }
             }
-            
-            tris = filtered_tris; // Replace the original list with the clean one
-            RCLCPP_INFO(this->get_logger(), "Mesh extracted & clipped! %zu clean triangles generated.", tris.size());
+            tris = filtered_tris; 
 
-            // 6. Save and publish
+            RCLCPP_INFO(this->get_logger(), "Mesh extracted! %zu clean triangles generated.", tris.size());
+
             std::string obj_path = "/workspace/carved_room.obj"; 
             carver_.writeObj(obj_path, points_copy, tris);
-            RCLCPP_INFO(this->get_logger(), "Saved mesh to: %s", obj_path.c_str());
 
+            // 6. Publish to RViz
             publish_mesh(tris);
 
         } catch (const std::exception& e) {
@@ -145,19 +142,16 @@ private:
         marker.type = visualization_msgs::msg::Marker::TRIANGLE_LIST;
         marker.action = visualization_msgs::msg::Marker::ADD;
         
-        // Marker configuration (Light Blue, Semi-Transparent)
         marker.scale.x = 1.0; marker.scale.y = 1.0; marker.scale.z = 1.0;
         marker.color.r = 0.3; marker.color.g = 0.8; marker.color.b = 0.9;
         marker.color.a = 0.6; 
 
-        // Map the triangle indices back to actual 3D coordinates using the secure getter
         int max_idx = carver_.numPoints();
         for (const auto& tri : tris) {
             int i0 = std::round(tri.x());
             int i1 = std::round(tri.y());
             int i2 = std::round(tri.z());
 
-            // Safety check against bad CGAL indices
             if(i0 < 0 || i1 < 0 || i2 < 0 || i0 >= max_idx || i1 >= max_idx || i2 >= max_idx) {
                 continue;
             }
@@ -183,7 +177,10 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mesh_;
     
     dlovi::FreespaceDelaunayAlgorithm carver_;
-    std::unordered_map<uint32_t, int> global_id_to_local_idx_; // Maps Python ID to C++ Array Index
+    std::unordered_map<uint32_t, int> global_id_to_local_idx_; 
+    
+    int keyframe_count_;
+    int process_every_n_frames_; // Change this to 10 if it's still lagging!
 };
 
 int main(int argc, char **argv) {

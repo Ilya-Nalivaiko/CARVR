@@ -20,7 +20,7 @@ class SpatialReconstructionNode(Node):
         self.bridge = CvBridge()
         
         # Configuration for Keyframe Debugging
-        self.save_kf_images = False
+        self.save_kf_images = True
         self.show_kf_images = False
         self.save_ply_clouds = True
         self.output_dir = "/workspace/debug/clouds"
@@ -82,7 +82,8 @@ class SpatialReconstructionNode(Node):
 
         if self.save_kf_images:
             kf_idx = len(self.keyframes)
-            filename = f"/workspace/debug/keyframe_{kf_idx:03d}.jpg"
+            os.makedirs("/workspace/debug/keyframes/", exist_ok=True)
+            filename = f"/workspace/debug/keyframes/keyframe_{kf_idx:03d}.jpg"
             cv2.imwrite(filename, debug_img)
             self.get_logger().info(f"Saved debug keyframe: {filename}")
 
@@ -93,7 +94,7 @@ class SpatialReconstructionNode(Node):
     def save_global_ply(self):
         """
         Gathers all keyframe points and camera positions, 
-        transforms them to world space, and saves a colored PLY file.
+        and saves a colored PLY file.
         """
         if not self.keyframes:
             return
@@ -102,21 +103,18 @@ class SpatialReconstructionNode(Node):
         colors = []
 
         for kf in self.keyframes:
-            pose = kf['pose']        # 4x4 matrix
-            pts_cam = kf['points']   # Nx3 array in camera frame
+            pose = kf['pose']        
+            pts_world = kf['points'] # THESE ARE ALREADY WORLD POINTS!
 
             # 1. Add Camera Position (Red)
             cam_pos = pose[:3, 3]
             world_points.append(cam_pos)
             colors.append((255, 0, 0)) # Red for camera
 
-            # 2. Transform Points to World Frame (Blue)
-            # points_world = R * points_cam + T
-            for pt in pts_cam:
-                # Apply rotation and translation
-                pt_world = pose[:3, :3] @ pt + pose[:3, 3]
-                world_points.append(pt_world)
-                colors.append((0, 0, 255)) # Blue for points
+            # 2. Add Points (Blue)
+            for pt in pts_world:
+                world_points.append(pt)
+                colors.append((0, 0, 255)) 
 
         # Write to PLY file
         kf_idx = len(self.keyframes)
@@ -217,12 +215,25 @@ class SpatialReconstructionNode(Node):
             kf_msg = KeyframeData()
             kf_msg.header.stamp = self.get_clock().now().to_msg()
             kf_msg.header.frame_id = "world"
-            kf_msg.camera_pose = msg_p.pose
             
+            # --- NEW: Send the OFFSET camera pose, not the raw head pose ---
+            kf_msg.camera_pose.position.x = float(mat[0, 3])
+            kf_msg.camera_pose.position.y = float(mat[1, 3])
+            kf_msg.camera_pose.position.z = float(mat[2, 3])
+            
+            # Convert the 3x3 rotation matrix back to a quaternion
+            offset_q = R.from_matrix(mat[:3, :3]).as_quat()
+            kf_msg.camera_pose.orientation.x = float(offset_q[0])
+            kf_msg.camera_pose.orientation.y = float(offset_q[1])
+            kf_msg.camera_pose.orientation.z = float(offset_q[2])
+            kf_msg.camera_pose.orientation.w = float(offset_q[3])
+            
+            cam_pos = np.array([msg_p.pose.position.x, msg_p.pose.position.y, msg_p.pose.position.z])
+
             # Pack the 3D points (WITH NOISE FILTERING)
             for i, pt in enumerate(points_3d):
                 # Calculate distance from camera to point
-                dist = np.linalg.norm(pt) 
+                dist = np.linalg.norm(pt - cam_pos) 
                 
                 # Only trust points within Quest 3's reliable stereo range (30cm to 3.5m)
                 if 0.3 < dist < 3.5:
