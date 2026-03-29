@@ -8,7 +8,7 @@ import os
 
 # Feature Detection & Replenishment
 MAX_POINTS = 500
-MIN_AGE_CONFIDENCE = 10
+MIN_AGE_CONFIDENCE = 5
 REPLENISH_THRESHOLD_RATIO = 0.7  # Trigger replenish if active points < (MAX_POINTS * this)
 GFTT_QUALITY_LEVEL = 0.02        # cv2.goodFeaturesToTrack quality level
 GFTT_MIN_DISTANCE = 15           # cv2.goodFeaturesToTrack min distance
@@ -30,8 +30,8 @@ MIN_DEPTH_PROJ = 0.1             # Minimum depth required to project 3D points b
 
 # Debugging & Logging
 SAVE_DEBUG_IMAGES = False         # Save tracker frames to disk
-SHOW_DEBUG_IMAGES = True         # Display tracker frames in a live OpenCV window
-SAVE_DEBUG_STATS = True
+SHOW_DEBUG_IMAGES = False         # Display tracker frames in a live OpenCV window
+SAVE_DEBUG_STATS = False
 DEBUG_DIR = "/workspace/debug"
 STATS_FILENAME = "stats.txt"
 

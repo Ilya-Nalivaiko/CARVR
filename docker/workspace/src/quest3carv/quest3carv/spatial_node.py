@@ -11,6 +11,9 @@ import os
 
 from quest3carv.tracker import StereoPointTracker
 
+from geometry_msgs.msg import Point
+from quest3carv_interfaces.msg import KeyframeData # Our new custom message
+
 class SpatialReconstructionNode(Node):
     def __init__(self):
         super().__init__('spatial_recon')
@@ -18,7 +21,7 @@ class SpatialReconstructionNode(Node):
         
         # Configuration for Keyframe Debugging
         self.save_kf_images = False
-        self.show_kf_images = True
+        self.show_kf_images = False
         
         # Initialize Tracker (Assume K and Baseline are known for Quest 3)
         K = np.array([[460, 0, 320], [0, 460, 320], [0, 0, 1]]) # TODO get true focal length with the lab script
@@ -27,8 +30,11 @@ class SpatialReconstructionNode(Node):
         # Keyframe Logic State
         self.last_kf_pose = None
         self.keyframes = [] # List of (Image, Pose, Points)
-        self.dist_threshold = 0.15 # 15cm
-        self.rot_threshold = 20.0  # 20 degrees
+        self.dist_threshold = 0.05 # 5cm
+        self.rot_threshold = 5.0  # 5 degrees
+
+        # Keyframe Publisher
+        self.kf_pub = self.create_publisher(KeyframeData, 'quest3carv/keyframe', 10)
 
         # Synchronized Subscribers
         self.sub_l = message_filters.Subscriber(self, Image, 'quest3/left/raw')
@@ -124,7 +130,7 @@ class SpatialReconstructionNode(Node):
             points_3d, points_2d, ages = self.tracker.get_confident_points()
 
             if len(points_3d) < 20:
-                self.get_logger().info("Not many points")
+                self.get_logger().info(f"Not many points ({len(points_3d)})")
                 return
             
             self.get_logger().info("New viewpoints added.")
@@ -139,8 +145,25 @@ class SpatialReconstructionNode(Node):
                 'points': points_3d
             })
             
-            # TODO: Here is where we will call the C++ Carving node via a ROS Service/Action
-            self.get_logger().info(f"Keyframe saved with {len(points_3d)} confident points.")
+            # ROS 2 Bridge: Send to C++ Carving Node
+            kf_msg = KeyframeData()
+            kf_msg.header.stamp = self.get_clock().now().to_msg()
+            kf_msg.header.frame_id = "world"
+            kf_msg.camera_pose = msg_p.pose
+            
+            # Pack the 3D points (WITH NOISE FILTERING)
+            for pt in points_3d:
+                # Calculate distance from camera to point
+                dist = np.linalg.norm(pt) 
+                
+                # Only trust points within Quest 3's reliable stereo range (30cm to 3.5m)
+                if 0.3 < dist < 3.5:
+                    p = Point()
+                    p.x, p.y, p.z = float(pt[0]), float(pt[1]), float(pt[2])
+                    kf_msg.points.append(p)
+                
+            self.kf_pub.publish(kf_msg)
+            self.get_logger().info(f"Published KeyframeData with {len(points_3d)} points to C++ Carving Node.")
 
 def main():
     rclpy.init()

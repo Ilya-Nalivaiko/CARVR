@@ -837,8 +837,8 @@ namespace dlovi {
         Delaunay3::Cell_handle tetCur;
         Delaunay3::Locate_type lt; int li, lj;
 
-        Eigen::Vector3d matQ(3, 1, 1.0);
-        Eigen::Vector3d matO(3, 1, 1.0);
+        Eigen::Vector3d matQ(1.0, 1.0, 1.0);
+        Eigen::Vector3d matO(1.0, 1.0, 1.0);
         matQ(0) = constraint.source().x();
         matQ(1) = constraint.source().y();
         matQ(2) = constraint.source().z();
@@ -919,8 +919,8 @@ namespace dlovi {
         Delaunay3::Cell_handle tetCur;
         Delaunay3::Locate_type lt; int li, lj;
 
-        Eigen::Vector3d matQ(3, 1);
-        Eigen::Vector3d matO(3, 1);
+        Eigen::Vector3d matQ= Eigen::Vector3d::Zero();
+        Eigen::Vector3d matO= Eigen::Vector3d::Zero();
         matQ(0) = constraint.source().x();
         matQ(1) = constraint.source().y();
         matQ(2) = constraint.source().z();
@@ -1141,9 +1141,9 @@ namespace dlovi {
         double t, u, v;
 
         // Get the 3 triangle vertices
-        Eigen::Vector3d v0 = Eigen::Vector3d::Zero();
-        Eigen::Vector3d v1 = Eigen::Vector3d::Zero();
-        Eigen::Vector3d v2 = Eigen::Vector3d::Zero();
+        Eigen::Vector3d v0= Eigen::Vector3d::Zero();
+        Eigen::Vector3d v1= Eigen::Vector3d::Zero();
+        Eigen::Vector3d v2= Eigen::Vector3d::Zero();
 
         // Note:
         // tri.first = the Cell_handle containing the triangle
@@ -1298,10 +1298,10 @@ namespace dlovi {
                                                            const Eigen::Vector3d & matO) const {
         // TODO: See if we can optimize this by reuse: we use the same constraint QO in all 3 face tests.  Faces also share edges and points.
         vector<Eigen::Vector3d> points;
-        Eigen::Vector3d tri(3, 1);
+        Eigen::Vector3d tri= Eigen::Vector3d::Zero();
         pair<Eigen::Vector3d, Eigen::Vector3d> constraint(matQ, matO);
         bool bCrossesInteriorOfConstraint;
-        Eigen::Vector3d tmpMat(3, 1);
+        Eigen::Vector3d tmpMat= Eigen::Vector3d::Zero();
 
         // Let f be the entry face's index.
         if (tetCur->neighbor(0) == tetPrev) f = 0;
@@ -1446,7 +1446,7 @@ namespace dlovi {
         vector<Delaunay3::Vertex_handle> vecBoundsHandles;
         vector<Delaunay3::Vertex_handle> vecVertexHandles;
         std::unordered_map<Delaunay3::Vertex_handle, int, HashVertHandle, EqVertHandle> hmapVertexHandleToIndex;
-        Eigen::Vector3d matTmpPoint(3, 1);
+        Eigen::Vector3d matTmpPoint= Eigen::Vector3d::Zero();
 
         // Initialize points and tris as empty:
         if (! points.empty()) points.clear();
@@ -1486,7 +1486,7 @@ namespace dlovi {
                 }
                 if (! bContainsBoundsVert) {
                     Delaunay3::Facet fTmp = dt.mirror_facet(*itFacet); // The normal points inward so mirror the facet
-                    Eigen::Vector3d tmpTri(1, 3);
+                    Eigen::Vector3d tmpTri= Eigen::Vector3d::Zero();
                     vector<Delaunay3::Vertex_handle> vecTri;
 
                     facetToTri(fTmp, vecTri);
@@ -1504,7 +1504,7 @@ namespace dlovi {
                 }
                 if (! bContainsBoundsVert) {
                     Delaunay3::Facet fTmp = *itFacet; // The normal points outward so no need to mirror the facet
-                    Eigen::Vector3d tmpTri(1, 3);
+                    Eigen::Vector3d tmpTri= Eigen::Vector3d::Zero();
                     vector<Delaunay3::Vertex_handle> vecTri;
 
                     facetToTri(fTmp, vecTri);

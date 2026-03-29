@@ -3,7 +3,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     return LaunchDescription([
-        # Node 1: Video Receiver
+        # Node 1: Video Receiver & Pose Ingestion (Python)
         Node(
             package='quest3carv',
             executable='receiver',
@@ -11,7 +11,8 @@ def generate_launch_description():
             output='screen',
             emulate_tty=True
         ),
-        # Node 2: Spatial Reconstruction (The Tracker)
+        
+        # Node 2: Spatial Reconstruction / The Tracker (Python)
         Node(
             package='quest3carv',
             executable='spatial_recon',
@@ -23,5 +24,14 @@ def generate_launch_description():
                 'dist_kf_threshold': 0.15,
                 'rot_kf_threshold': 20.0
             }]
+        ),
+
+        # Node 3: Incremental Free-Space Carver (C++)
+        Node(
+            package='quest3carv_cpp',
+            executable='carving_node',
+            name='carving_node',
+            output='screen',
+            emulate_tty=True
         )
     ])

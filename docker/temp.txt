@@ -1,0 +1,15 @@
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-03-29-19-40-12-632819-Zenbook-30500
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [receiver-1]: process started with pid [30501]
+[INFO] [spatial_recon-2]: process started with pid [30503]
+[INFO] [carving_node-3]: process started with pid [30505]
+[carving_node-3] [INFO] [1774813212.681458007] [carving_node]: Freespace Carving Node Initialized and Waiting for Keyframes...
+[receiver-1] [INFO] [1774813213.073336151] [video_receiver]: Quest 3 Stereo Receiver Node Started (Parallel Mode)
+[spatial_recon-2] qt.qpa.xcb: could not connect to display 
+[spatial_recon-2] qt.qpa.plugin: Could not load the Qt platform plugin "xcb" in "/usr/local/lib/python3.10/dist-packages/cv2/qt/plugins" even though it was found.
+[spatial_recon-2] This application failed to start because no Qt platform plugin could be initialized. Reinstalling the application may fix this problem.
+[spatial_recon-2] 
+[spatial_recon-2] Available platform plugins are: xcb.
+[spatial_recon-2] 
+[ERROR] [spatial_recon-2]: process has died [pid 30503, exit code -6, cmd '/workspace/install/quest3carv/lib/quest3carv/spatial_recon --ros-args -r __node:=spatial_recon --params-file /tmp/launch_params_61kkqojz'].
+
