@@ -25,7 +25,7 @@
 #ifndef __FREESPACEDELAUNAYALGORITHM_CPP
 #define __FREESPACEDELAUNAYALGORITHM_CPP
 
-#include "Modeler/FreespaceDelaunayAlgorithm.h"
+#include "quest3carv_cpp/FreespaceDelaunayAlgorithm.h"
 #include <sys/time.h>
 #include <algorithm>
 
@@ -37,14 +37,14 @@ namespace dlovi {
         calculateBoundsValues();
     }
 
-    FreespaceDelaunayAlgorithm::FreespaceDelaunayAlgorithm(const vector<Matrix> & points, const vector<Matrix> & cams, const vector<Matrix> & camCenters,
-                                                           const vector<Matrix> & principleRays, const vector<vector<int> > & visibilityList) {
+    FreespaceDelaunayAlgorithm::FreespaceDelaunayAlgorithm(const vector<Eigen::Vector3d> & points, const vector<Eigen::Vector3d> & cams, const vector<Eigen::Vector3d> & camCenters,
+                                                           const vector<Eigen::Vector3d> & principleRays, const vector<vector<int> > & visibilityList) {
         copy(points, cams, camCenters, principleRays, visibilityList);
         calculateBoundsValues();
     }
 
-    FreespaceDelaunayAlgorithm::FreespaceDelaunayAlgorithm(const vector<Matrix> & points, const vector<Matrix> & cams, const vector<Matrix> & camCenters,
-                                                           const vector<Matrix> & principleRays, const vector<Matrix> & normals) {
+    FreespaceDelaunayAlgorithm::FreespaceDelaunayAlgorithm(const vector<Eigen::Vector3d> & points, const vector<Eigen::Vector3d> & cams, const vector<Eigen::Vector3d> & camCenters,
+                                                           const vector<Eigen::Vector3d> & principleRays, const vector<Eigen::Vector3d> & normals) {
         vector<vector<int> > visibilityList;
         copy(points, cams, camCenters, principleRays, visibilityList);
         calculateBoundsValues();
@@ -61,11 +61,11 @@ namespace dlovi {
 
     // Getters
 
-    const vector<Matrix> & FreespaceDelaunayAlgorithm::getPoints() const {
+    const vector<Eigen::Vector3d> & FreespaceDelaunayAlgorithm::getPoints() const {
         return m_points;
     }
 
-    Matrix FreespaceDelaunayAlgorithm::getPoint(const int index) const {
+    Eigen::Vector3d FreespaceDelaunayAlgorithm::getPoint(const int index) const {
         return m_points[index];
     }
 
@@ -73,27 +73,27 @@ namespace dlovi {
         return (int)m_points.size();
     }
 
-    const vector<Matrix> & FreespaceDelaunayAlgorithm::getCams() const {
+    const vector<Eigen::Vector3d> & FreespaceDelaunayAlgorithm::getCams() const {
         return m_cams;
     }
 
-    Matrix FreespaceDelaunayAlgorithm::getCam(const int index) const {
+    Eigen::Vector3d FreespaceDelaunayAlgorithm::getCam(const int index) const {
         return m_cams[index];
     }
 
-    const vector<Matrix> & FreespaceDelaunayAlgorithm::getCamCenters() const {
+    const vector<Eigen::Vector3d> & FreespaceDelaunayAlgorithm::getCamCenters() const {
         return m_camCenters;
     }
 
-    Matrix FreespaceDelaunayAlgorithm::getCamCenter(const int index) const {
+    Eigen::Vector3d FreespaceDelaunayAlgorithm::getCamCenter(const int index) const {
         return m_camCenters[index];
     }
 
-    const vector<Matrix> & FreespaceDelaunayAlgorithm::getPrincipleRays() const {
+    const vector<Eigen::Vector3d> & FreespaceDelaunayAlgorithm::getPrincipleRays() const {
         return m_principleRays;
     }
 
-    Matrix FreespaceDelaunayAlgorithm::getPrincipleRay(const int index) const {
+    Eigen::Vector3d FreespaceDelaunayAlgorithm::getPrincipleRay(const int index) const {
         return m_principleRays[index];
     }
 
@@ -119,19 +119,19 @@ namespace dlovi {
 
     // Setters
 
-    void FreespaceDelaunayAlgorithm::setPoints(const vector<Matrix> & ref) {
+    void FreespaceDelaunayAlgorithm::setPoints(const vector<Eigen::Vector3d> & ref) {
         m_points = ref;
     }
 
-    void FreespaceDelaunayAlgorithm::setCams(const vector<Matrix> & ref) {
+    void FreespaceDelaunayAlgorithm::setCams(const vector<Eigen::Vector3d> & ref) {
         m_cams = ref;
     }
 
-    void FreespaceDelaunayAlgorithm::setCamCenters(const vector<Matrix> & ref) {
+    void FreespaceDelaunayAlgorithm::setCamCenters(const vector<Eigen::Vector3d> & ref) {
         m_camCenters = ref;
     }
 
-    void FreespaceDelaunayAlgorithm::setPrincipleRays(const vector<Matrix> & ref) {
+    void FreespaceDelaunayAlgorithm::setPrincipleRays(const vector<Eigen::Vector3d> & ref) {
         m_principleRays = ref;
     }
 
@@ -139,11 +139,11 @@ namespace dlovi {
         m_visibilityList = ref;
     }
 
-    void FreespaceDelaunayAlgorithm::addPoint(const Matrix & ref) {
+    void FreespaceDelaunayAlgorithm::addPoint(const Eigen::Vector3d & ref) {
         m_points.push_back(ref);
     }
 
-    void FreespaceDelaunayAlgorithm::addCamCenter(const Matrix & ref) {
+    void FreespaceDelaunayAlgorithm::addCamCenter(const Eigen::Vector3d & ref) {
         m_camCenters.push_back(ref);
         m_visibilityList.push_back(vector<int>());
     }
@@ -179,15 +179,18 @@ namespace dlovi {
         return false;
     }
 
-    void FreespaceDelaunayAlgorithm::generateVisibilityFromNormals(const vector<Matrix> & normals, const double nFrontFacingAngleThreshold, const double nFov) {
+    void FreespaceDelaunayAlgorithm::generateVisibilityFromNormals(const vector<Eigen::Vector3d> & normals, const double nFrontFacingAngleThreshold, const double nFov) {
         vector<vector<int> > tmpVisibility(numCams());
-        Matrix vCamToPoint;
+        Eigen::Vector3d vCamToPoint;
 
         for (int i = 0; i < numCams(); i++) {
             for (int j = 0; j < numPoints(); j++) {
                 vCamToPoint = getPoint(j) - getCamCenter(i);
-                if (normals[j].angleBetween(-vCamToPoint) < nFrontFacingAngleThreshold && vCamToPoint.angleBetween(getPrincipleRay(i)) < nFov / 2.0)
+                double angle1 = std::acos(normals[j].normalized().dot((-vCamToPoint).normalized()));
+                double angle2 = std::acos(vCamToPoint.normalized().dot(getPrincipleRay(i).normalized()));
+                if (angle1 < nFrontFacingAngleThreshold && angle2 < nFov / 2.0){
                     tmpVisibility[i].push_back(j);
+                }
             }
         }
         setVisibilityList(tmpVisibility);
@@ -201,7 +204,7 @@ namespace dlovi {
         createBounds(dt);
 
         vector<Delaunay3::Vertex_handle> vecVertexHandles;
-        vector<int> localVisLists[numCams()];
+        vector<vector<int>> localVisLists(numCams());
 
         // Add all the observed vertices to the triangulation.  On construction, the voting counts of all cells are zero.
         // Also build the list of cached vertex handles into the triangulation.
@@ -217,7 +220,7 @@ namespace dlovi {
                 vector<int>::const_iterator itOriginalLocalVisList;
                 for (itOriginalLocalVisList = getVisibilityList(frameIndex).begin(); itOriginalLocalVisList != getVisibilityList(frameIndex).end(); itOriginalLocalVisList++) {
                     int originalIndex = *itOriginalLocalVisList;
-                    Matrix matTmpPoint = getPoint(originalIndex);
+                    Eigen::Vector3d matTmpPoint = getPoint(originalIndex);
                     PointD3 pd3TmpPoint(matTmpPoint(0), matTmpPoint(1), matTmpPoint(2));
 
                     map<int, int>::iterator itVertHandleIndex = m_mapPoint_VertexHandle.find(originalIndex);
@@ -241,8 +244,8 @@ namespace dlovi {
                 const vector<int> & localVisList = getVisibilityList(i);
                 for (int j = 0; j < (int)localVisList.size(); j++) {
                     // let Q be the point & O the optic center.
-                    Matrix matQ = getPoint(localVisList[j]);
-                    Matrix matO = getCamCenter(i);
+                    Eigen::Vector3d matQ = getPoint(localVisList[j]);
+                    Eigen::Vector3d matO = getCamCenter(i);
                     PointD3 Q(matQ(0), matQ(1), matQ(2));
                     PointD3 O(matO(0), matO(1), matO(2));
                     Segment QO = Segment(Q, O);
@@ -257,7 +260,7 @@ namespace dlovi {
             for (int i = 0; i < numCams(); i++) {
                 for (int j = 0; j < (int)localVisLists[i].size(); j++) {
                     // let Q be the point & O the optic center.
-                    Matrix matO = getCamCenter(i);
+                    Eigen::Vector3d matO = getCamCenter(i);
                     PointD3 Q(vecVertexHandles[localVisLists[i][j]]->point());
                     PointD3 O(matO(0), matO(1), matO(2));
                     Segment QO = Segment(Q, O);
@@ -283,7 +286,7 @@ namespace dlovi {
         addNewlyObservedFeatures(dt, vecVertexHandles, localVisList, getVisibilityList(frameIndex));
 
         // Apply the current view's freespace constraints to the triangulation
-        Matrix matO = getCamCenter(frameIndex);
+        Eigen::Vector3d matO = getCamCenter(frameIndex);
         PointD3 O(matO(0), matO(1), matO(2));
         for (int j = 0; j < (int)localVisList.size(); j++) {
             // let Q be the point & O the optic center.
@@ -717,21 +720,21 @@ namespace dlovi {
         }
     }
 
-    void FreespaceDelaunayAlgorithm::tetsToTris(const Delaunay3 & dt, vector<Matrix> & points, list<Matrix> & tris, const int nVoteThresh) const {
+    void FreespaceDelaunayAlgorithm::tetsToTris(const Delaunay3 & dt, vector<Eigen::Vector3d> & points, list<Eigen::Vector3d> & tris, const int nVoteThresh) const {
         // NEW Version, graph cut isosurf extraction with maxflow (builds the graph from scratch every time):
-        {
-            // TODO: Remove timing output for graphcuts.
-            //cerr << "Running Graph Cut Isosurface Extraction..." << endl;
-            double t = timestamp();
-            tetsToTris_maxFlowSimple(dt, points, tris, nVoteThresh);
-            //cerr << "Time Taken (Isosurface): " << (timestamp() - t) << " s" << endl;
-        }
+        // {
+        //     // TODO: Remove timing output for graphcuts.
+        //     //cerr << "Running Graph Cut Isosurface Extraction..." << endl;
+        //     double t = timestamp();
+        //     tetsToTris_maxFlowSimple(dt, points, tris, nVoteThresh);
+        //     //cerr << "Time Taken (Isosurface): " << (timestamp() - t) << " s" << endl;
+        // }
 
         // OLD Version, simple isosurf extraction:
-        // tetsToTris_naive(dt, points, tris, nVoteThresh);
+        tetsToTris_naive(dt, points, tris, nVoteThresh);
     }
 
-    int FreespaceDelaunayAlgorithm::writeObj(const string filename, const vector<Matrix> & points, const list<Matrix> & tris) const {
+    int FreespaceDelaunayAlgorithm::writeObj(const string filename, const vector<Eigen::Vector3d> & points, const list<Eigen::Vector3d> & tris) const {
         // TODO: handle better for invalid files (e.g. throw exception).
         ofstream outfile;
 
@@ -743,28 +746,28 @@ namespace dlovi {
         }
 
         // Write out lines one by one.
-        for (vector<Matrix>::const_iterator itPoints = points.begin(); itPoints != points.end(); itPoints++)
-            outfile << "v " << itPoints->at(0) << " " << itPoints->at(1) << " " << itPoints->at(2) << endl;
-        for (list<Matrix>::const_iterator itTris = tris.begin(); itTris != tris.end(); itTris++)
-            outfile << "f " << (round(itTris->at(0)) + 1) << " " << (round(itTris->at(1)) + 1) << " " << (round(itTris->at(2)) + 1) << endl;
+        for (vector<Eigen::Vector3d>::const_iterator itPoints = points.begin(); itPoints != points.end(); itPoints++)
+            outfile << "v " << (*itPoints)[0] << " " << (*itPoints)[1] << " " << (*itPoints)[2] << endl;
+        for (list<Eigen::Vector3d>::const_iterator itTris = tris.begin(); itTris != tris.end(); itTris++)
+            outfile << "f " << (round((*itTris)[0]) + 1) << " " << (round((*itTris)[1]) + 1) << " " << (round((*itTris)[2]) + 1) << endl;
 
         // Close the file and return
         outfile.close();
         return 0;
     }
 
-    void FreespaceDelaunayAlgorithm::writeObj(ostream & outfile, const vector<Matrix> & points, const list<Matrix> & tris) const {
+    void FreespaceDelaunayAlgorithm::writeObj(ostream & outfile, const vector<Eigen::Vector3d> & points, const list<Eigen::Vector3d> & tris) const {
         // Write out lines one by one.
-        for (vector<Matrix>::const_iterator itPoints = points.begin(); itPoints != points.end(); itPoints++)
-            outfile << "v " << itPoints->at(0) << " " << itPoints->at(1) << " " << itPoints->at(2) << endl;
-        for (list<Matrix>::const_iterator itTris = tris.begin(); itTris != tris.end(); itTris++)
-            outfile << "f " << (round(itTris->at(0)) + 1) << " " << (round(itTris->at(1)) + 1) << " " << (round(itTris->at(2)) + 1) << endl;
+        for (vector<Eigen::Vector3d>::const_iterator itPoints = points.begin(); itPoints != points.end(); itPoints++)
+            outfile << "v " << (*itPoints)[0] << " " << (*itPoints)[1] << " " << (*itPoints)[2] << endl;
+        for (list<Eigen::Vector3d>::const_iterator itTris = tris.begin(); itTris != tris.end(); itTris++)
+            outfile << "f " << (round((*itTris)[0]) + 1) << " " << (round((*itTris)[1]) + 1) << " " << (round((*itTris)[2]) + 1) << endl;
     }
 
     // Private Methods
 
-    void FreespaceDelaunayAlgorithm::copy(const vector<Matrix> & points, const vector<Matrix> & cams, const vector<Matrix> & camCenters,
-                                          const vector<Matrix> & principleRays, const vector<vector<int> > & visibilityList) {
+    void FreespaceDelaunayAlgorithm::copy(const vector<Eigen::Vector3d> & points, const vector<Eigen::Vector3d> & cams, const vector<Eigen::Vector3d> & camCenters,
+                                          const vector<Eigen::Vector3d> & principleRays, const vector<vector<int> > & visibilityList) {
         m_points = points;
         m_cams = cams;
         m_camCenters = camCenters;
@@ -834,8 +837,8 @@ namespace dlovi {
         Delaunay3::Cell_handle tetCur;
         Delaunay3::Locate_type lt; int li, lj;
 
-        Matrix matQ(3, 1, 1.0);
-        Matrix matO(3, 1, 1.0);
+        Eigen::Vector3d matQ(3, 1, 1.0);
+        Eigen::Vector3d matO(3, 1, 1.0);
         matQ(0) = constraint.source().x();
         matQ(1) = constraint.source().y();
         matQ(2) = constraint.source().z();
@@ -916,8 +919,8 @@ namespace dlovi {
         Delaunay3::Cell_handle tetCur;
         Delaunay3::Locate_type lt; int li, lj;
 
-        Matrix matQ(3, 1);
-        Matrix matO(3, 1);
+        Eigen::Vector3d matQ(3, 1);
+        Eigen::Vector3d matO(3, 1);
         matQ(0) = constraint.source().x();
         matQ(1) = constraint.source().y();
         matQ(2) = constraint.source().z();
@@ -1017,7 +1020,7 @@ namespace dlovi {
         for (itOriginalLocalVisList = originalLocalVisList.begin(); itOriginalLocalVisList != originalLocalVisList.end(); itOriginalLocalVisList++) {
             // OLD CODE: no point index -> vertex index map
             /*int originalIndex = *itOriginalLocalVisList;
-            Matrix matTmpPoint = getPoint(originalIndex);
+            Eigen::Vector3d matTmpPoint = getPoint(originalIndex);
             PointD3 pd3TmpPoint(matTmpPoint(0), matTmpPoint(1), matTmpPoint(2));
 
             // TODO: consider whether it's more efficient to use dt.locate() instead of iterating through vecVertexHandles below.
@@ -1051,7 +1054,7 @@ namespace dlovi {
                 // We didn't find a match, so this is a new feature.  Add it to the point set and the visibility list.
                 // This involves properly deleting & staring off a connected subset of tetrahedra that violate the Delaunay constraint
                 // after the addition, while marking the new tetrahedra with the deleted tetrahedra's freespace constraints.
-                Matrix matTmpPoint = getPoint(originalIndex);
+                Eigen::Vector3d matTmpPoint = getPoint(originalIndex);
                 PointD3 pd3TmpPoint(matTmpPoint(0), matTmpPoint(1), matTmpPoint(2));
                 addNewlyObservedFeature(dt, vecVertexHandles, setUnionedConstraints, pd3TmpPoint, originalIndex);
                 localVisList.push_back((int)vecVertexHandles.size() - 1);
@@ -1130,17 +1133,17 @@ namespace dlovi {
         m_mapPoint_VertexHandle[nPointIndex] = (int)vecVertexHandles.size() - 1;
     }
 
-    bool FreespaceDelaunayAlgorithm::triangleConstraintIntersectionTest(const Delaunay3::Facet & tri, const Matrix & segSrc, const Matrix & segDest) const {
+    bool FreespaceDelaunayAlgorithm::triangleConstraintIntersectionTest(const Delaunay3::Facet & tri, const Eigen::Vector3d & segSrc, const Eigen::Vector3d & segDest) const {
         // A custom implementation of the ray-triangle intersection test at http://jgt.akpeters.com/papers/MollerTrumbore97/code.html
         // Follows the back-face culling branch (ie: a triangle won't intersect the ray if the ray pierces the backside of it.)
-        Matrix edge1, edge2, tvec, pvec, qvec;
+        Eigen::Vector3d edge1, edge2, tvec, pvec, qvec;
         double det, inv_det;
         double t, u, v;
 
         // Get the 3 triangle vertices
-        Matrix v0(3, 1);
-        Matrix v1(3, 1);
-        Matrix v2(3, 1);
+        Eigen::Vector3d v0 = Eigen::Vector3d::Zero();
+        Eigen::Vector3d v1 = Eigen::Vector3d::Zero();
+        Eigen::Vector3d v2 = Eigen::Vector3d::Zero();
 
         // Note:
         // tri.first = the Cell_handle containing the triangle
@@ -1175,7 +1178,7 @@ namespace dlovi {
         }
 
         // Get the constraint ray's normalized direction vector
-        Matrix dir = segDest - segSrc;
+        Eigen::Vector3d dir = segDest - segSrc;
         double dirNorm = dir.norm();
         dir /= dirNorm;
 
@@ -1222,10 +1225,10 @@ namespace dlovi {
         return true;
     }
 
-    bool FreespaceDelaunayAlgorithm::triangleConstraintIntersectionTest(bool & bCrossesInteriorOfConstraint, const vector<Matrix> & points, const Matrix & tri, const pair<Matrix, Matrix> & constraint) const {
+    bool FreespaceDelaunayAlgorithm::triangleConstraintIntersectionTest(bool & bCrossesInteriorOfConstraint, const vector<Eigen::Vector3d> & points, const Eigen::Vector3d & tri, const pair<Eigen::Vector3d, Eigen::Vector3d> & constraint) const {
         // A custom implementation of the ray-triangle intersection test at http://jgt.akpeters.com/papers/MollerTrumbore97/code.html
         // Follows the back-face culling branch (ie: a triangle won't intersect the ray if the ray pierces the backside of it.)
-        Matrix edge1, edge2, tvec, pvec, qvec;
+        Eigen::Vector3d edge1, edge2, tvec, pvec, qvec;
         double det, inv_det;
         double t, u, v;
 
@@ -1233,16 +1236,16 @@ namespace dlovi {
         bCrossesInteriorOfConstraint = false;
 
         // Get the two segment points:
-        const Matrix & segSrc = constraint.first;
-        const Matrix & segDest = constraint.second;
+        const Eigen::Vector3d & segSrc = constraint.first;
+        const Eigen::Vector3d & segDest = constraint.second;
 
         // Get the 3 triangle vertices
-        const Matrix & v0 = points[round(tri(0))];
-        const Matrix & v1 = points[round(tri(1))];
-        const Matrix & v2 = points[round(tri(2))];
+        const Eigen::Vector3d & v0 = points[round(tri(0))];
+        const Eigen::Vector3d & v1 = points[round(tri(1))];
+        const Eigen::Vector3d & v2 = points[round(tri(2))];
 
         // Get the constraint ray's normalized direction vector
-        Matrix dir = segDest - segSrc;
+        Eigen::Vector3d dir = segDest - segSrc;
         double dirNorm = dir.norm();
         dir /= dirNorm;
 
@@ -1291,14 +1294,14 @@ namespace dlovi {
         return true;
     }
 
-    bool FreespaceDelaunayAlgorithm::cellTraversalExitTest(int & f, const Delaunay3::Cell_handle tetCur, const Delaunay3::Cell_handle tetPrev, const Matrix & matQ,
-                                                           const Matrix & matO) const {
+    bool FreespaceDelaunayAlgorithm::cellTraversalExitTest(int & f, const Delaunay3::Cell_handle tetCur, const Delaunay3::Cell_handle tetPrev, const Eigen::Vector3d & matQ,
+                                                           const Eigen::Vector3d & matO) const {
         // TODO: See if we can optimize this by reuse: we use the same constraint QO in all 3 face tests.  Faces also share edges and points.
-        vector<Matrix> points;
-        Matrix tri(3, 1);
-        pair<Matrix, Matrix> constraint(matQ, matO);
+        vector<Eigen::Vector3d> points;
+        Eigen::Vector3d tri(3, 1);
+        pair<Eigen::Vector3d, Eigen::Vector3d> constraint(matQ, matO);
         bool bCrossesInteriorOfConstraint;
-        Matrix tmpMat(3, 1);
+        Eigen::Vector3d tmpMat(3, 1);
 
         // Let f be the entry face's index.
         if (tetCur->neighbor(0) == tetPrev) f = 0;
@@ -1439,11 +1442,11 @@ namespace dlovi {
         return (double)(t.tv_sec + (t.tv_usec / 1000000.0));
     }
 
-    void FreespaceDelaunayAlgorithm::tetsToTris_naive(const Delaunay3 & dt, vector<Matrix> & points, list<Matrix> & tris, const int nVoteThresh) const {
+    void FreespaceDelaunayAlgorithm::tetsToTris_naive(const Delaunay3 & dt, vector<Eigen::Vector3d> & points, list<Eigen::Vector3d> & tris, const int nVoteThresh) const {
         vector<Delaunay3::Vertex_handle> vecBoundsHandles;
         vector<Delaunay3::Vertex_handle> vecVertexHandles;
         std::unordered_map<Delaunay3::Vertex_handle, int, HashVertHandle, EqVertHandle> hmapVertexHandleToIndex;
-        Matrix matTmpPoint(3, 1);
+        Eigen::Vector3d matTmpPoint(3, 1);
 
         // Initialize points and tris as empty:
         if (! points.empty()) points.clear();
@@ -1483,7 +1486,7 @@ namespace dlovi {
                 }
                 if (! bContainsBoundsVert) {
                     Delaunay3::Facet fTmp = dt.mirror_facet(*itFacet); // The normal points inward so mirror the facet
-                    Matrix tmpTri(1, 3);
+                    Eigen::Vector3d tmpTri(1, 3);
                     vector<Delaunay3::Vertex_handle> vecTri;
 
                     facetToTri(fTmp, vecTri);
@@ -1501,153 +1504,7 @@ namespace dlovi {
                 }
                 if (! bContainsBoundsVert) {
                     Delaunay3::Facet fTmp = *itFacet; // The normal points outward so no need to mirror the facet
-                    Matrix tmpTri(1, 3);
-                    vector<Delaunay3::Vertex_handle> vecTri;
-
-                    facetToTri(fTmp, vecTri);
-                    tmpTri(0) = hmapVertexHandleToIndex[vecTri[0]];
-                    tmpTri(1) = hmapVertexHandleToIndex[vecTri[1]];
-                    tmpTri(2) = hmapVertexHandleToIndex[vecTri[2]];
-                    tris.push_back(tmpTri);
-                }
-            }
-        }
-    }
-
-    void FreespaceDelaunayAlgorithm::tetsToTris_maxFlowSimple(const Delaunay3 & dt, vector<Matrix> & points, list<Matrix> & tris, const int nVoteThresh) const {
-        vector<Delaunay3::Vertex_handle> vecBoundsHandles;
-        vector<Delaunay3::Vertex_handle> vecVertexHandles;
-        std::unordered_map<Delaunay3::Vertex_handle, int, HashVertHandle, EqVertHandle> hmapVertexHandleToIndex;
-        map<Delaunay3::Cell_handle, int> mapCellHandleToIndex;
-        Matrix matTmpPoint(3, 1);
-        int loop;
-
-        // Get some size-properties from the triangulation (non-constant-time access functions in the triangulation class)
-        int numFiniteTets = dt.number_of_finite_cells();
-        int numFiniteFacets = dt.number_of_finite_facets();
-
-        // Initialize the maxflow graph
-        Graph_t graph(numFiniteTets, numFiniteFacets);
-        graph.addSource();
-        graph.addSink();
-
-        // Initialize points and tris as empty:
-        if (! points.empty()) points.clear();
-        if (! tris.empty()) tris.clear();
-
-        // Create a list of vertex handles to the bounding vertices (they'll be the vertices connected to the infinite vertex):
-        dt.incident_vertices (dt.infinite_vertex(), std::back_inserter(vecBoundsHandles));
-
-        // Populate the model's point list, create a list of finite non-bounding vertex handles, and
-        // create a useful associative map (handle->point list index).
-        for (Delaunay3::Finite_vertices_iterator itVert = dt.finite_vertices_begin(); itVert != dt.finite_vertices_end(); itVert++) {
-            vector<Delaunay3::Vertex_handle>::iterator itBounds;
-            for (itBounds = vecBoundsHandles.begin(); itBounds != vecBoundsHandles.end(); itBounds++) {
-                if ((*itBounds) == ((Delaunay3::Vertex_handle)itVert))
-                    break;
-            }
-            if (itBounds == vecBoundsHandles.end()) { // the vertex is not a bounding vertex, so add it
-                matTmpPoint(0) = itVert->point().x();
-                matTmpPoint(1) = itVert->point().y();
-                matTmpPoint(2) = itVert->point().z();
-                points.push_back(matTmpPoint);
-                vecVertexHandles.push_back(itVert);
-                hmapVertexHandleToIndex[itVert] = points.size() - 1;
-            }
-        }
-
-        // Create useful associative maps (tet list index->handle & handle->tet list index).
-        Delaunay3::Finite_cells_iterator it;
-        for (loop = 0, it = dt.finite_cells_begin(); it != dt.finite_cells_end(); it++, loop++)
-            mapCellHandleToIndex[it] = loop;
-
-        // Construct the graph's edge costs to minimize an engergy E = data + lambda_smooth * smoothness:
-        // Labels:
-        //   source s (0) = outside
-        //   sink t (1) = inside
-        // Data term (TODO: tune these bogus params):
-        //   P(constraint in x | x = outside) = 1
-        //   P(no constraint in x | x = outside) = 0
-        //   P(constraint in x | x = inside) = 0
-        //   P(no constraint in x | x = inside) = 1
-        const double P_constr_X0 = 1.0;
-        const double P_no_constr_X0 = 0.0;
-        const double P_constr_X1 = 0.0;
-        const double P_no_constr_X1 = 1.0;
-
-        //const double lambda_smooth = 0.3; //0.75;  // Good values approx. < 0.5 to 1
-        const double lambda_smooth = 0.05; //0.75;  // Good values approx. < 0.5 to 1
-
-        // Construct the graph's data terms
-        for (it = dt.finite_cells_begin(); it != dt.finite_cells_end(); it++) {
-            int node = mapCellHandleToIndex.find(it)->second;
-
-            double tetVolume = fabs(dt.tetrahedron(it).volume());
-
-            if (it->info().getVoteCount()) {
-                // node X has constraints
-                graph.addTWeights(node, P_constr_X0 * tetVolume, P_constr_X1 * tetVolume);
-            }
-            else {
-                // node X has no constraint
-                graph.addTWeights(node, P_no_constr_X0 * tetVolume, P_no_constr_X1 * tetVolume);
-            }
-        }
-
-        // Iterate over finite facets to construct the graph's regularization
-        for (Delaunay3::Finite_facets_iterator it = dt.finite_facets_begin(); it != dt.finite_facets_end(); it++) {
-            // If the facet contains a bounding vert, it won't be added to the isosurface, so don't penalize it with a smoothness cost.
-            bool bContainsBoundsVert = false;
-            for (int i = 0; i < 4; i++) {
-                if (i == it->second) continue;
-                if (std::find(vecBoundsHandles.begin(), vecBoundsHandles.end(), it->first->vertex(i)) != vecBoundsHandles.end()) {
-                    bContainsBoundsVert = true;  break;
-                }
-            }
-            if (! bContainsBoundsVert) {
-                double smoothness_cost = lambda_smooth * sqrt(dt.triangle(*it).squared_area());
-                graph.addEdge(mapCellHandleToIndex[it->first], mapCellHandleToIndex[it->first->neighbor(it->second)], smoothness_cost, smoothness_cost);
-            }
-        }
-
-        // Run the maxflow algorithm to determine the labeling
-        graph.maxflow();
-        //double flow = graph.maxflow();
-        //cerr << "Max Flow: " << flow << endl;
-
-        // Iterate over finite facets to extract the mesh's triangles from the graph's mincut labeling
-        for (Delaunay3::Finite_facets_iterator itFacet = dt.finite_facets_begin(); itFacet != dt.finite_facets_end(); itFacet++) {
-            // If one adjacent cell is empty, and the other is not, and if the facet contains no vertex from the bounding vertices,
-            // then add a triangle to the mesh (w/ correct orientation).
-            bool bFacetCellKept = ! graph.whatSegment(mapCellHandleToIndex[itFacet->first]);
-            bool bMirrorCellKept = ! graph.whatSegment(mapCellHandleToIndex[itFacet->first->neighbor(itFacet->second)]);
-            if (bFacetCellKept && ! bMirrorCellKept) {
-                bool bContainsBoundsVert = false;
-                for (int i = 0; i < 4; i++) {
-                    if (i == itFacet->second) continue;
-                    if (hmapVertexHandleToIndex.count(itFacet->first->vertex(i)) == 0) { bContainsBoundsVert = true;  break; }
-                }
-                if (! bContainsBoundsVert) {
-                    Delaunay3::Facet fTmp = dt.mirror_facet(*itFacet); // The normal points inward so mirror the facet
-                    Matrix tmpTri(1, 3);
-                    vector<Delaunay3::Vertex_handle> vecTri;
-
-                    facetToTri(fTmp, vecTri);
-                    tmpTri(0) = hmapVertexHandleToIndex[vecTri[0]];
-                    tmpTri(1) = hmapVertexHandleToIndex[vecTri[1]];
-                    tmpTri(2) = hmapVertexHandleToIndex[vecTri[2]];
-                    tris.push_back(tmpTri);
-                }
-            }
-            else if (bMirrorCellKept && ! bFacetCellKept) {
-                bool bContainsBoundsVert = false;
-                for (int i = 0; i < 4; i++) {
-                    if (i == itFacet->second) continue;
-                    if (hmapVertexHandleToIndex.count(itFacet->first->vertex(i)) == 0) { bContainsBoundsVert = true;  break; }
-                }
-                if (! bContainsBoundsVert) {
-                    Delaunay3::Facet fTmp = *itFacet; // The normal points outward so no need to mirror the facet
-                    Matrix tmpTri(1, 3);
+                    Eigen::Vector3d tmpTri(1, 3);
                     vector<Delaunay3::Vertex_handle> vecTri;
 
                     facetToTri(fTmp, vecTri);

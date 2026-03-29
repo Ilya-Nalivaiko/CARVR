@@ -36,10 +36,8 @@
 #include <iostream>
 #include <limits>
 #include <unordered_map>
-#include "Modeler/lovimath.h"
-#include "Modeler/Matrix.h"
-// #include <maxflow/graph.h>
-#include "Modeler/GraphWrapper_Boost.h"
+#include <Eigen/Dense>
+#include <cmath>
 
 // CGAL-related includes
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
@@ -56,6 +54,8 @@ using namespace std;
 //#define NO_HEURISTIC_K
 #define HEURISTIC_K 1
 //#define HEURISTIC_K 5
+
+#define sqrt_eps_d 1.49011611938477e-08
 
 namespace dlovi {
     class FreespaceDelaunayAlgorithm;
@@ -122,12 +122,12 @@ namespace dlovi {
             bool isKeptByVoteCount(const int nVoteThresh = 1) const { if (getVoteCount() < nVoteThresh) return true;  return false; }
 #ifdef NO_HEURISTIC_K
             template <class T>
-        void addIntersection(int camIndex, int featureIndex, const vector<T> & vecVertexHandles, const vector<Matrix> & vecCamCenters) {
+        void addIntersection(int camIndex, int featureIndex, const vector<T> & vecVertexHandles, const vector<Eigen::Vector3d> & vecCamCenters) {
           m_setIntersections.insert(m_setIntersections.end(), FSConstraint(camIndex, featureIndex));
         }
 #else
             template <class T>
-            void addIntersection(int camIndex, int featureIndex, const vector<T> & vecVertexHandles, const vector<Matrix> & vecCamCenters) {
+            void addIntersection(int camIndex, int featureIndex, const vector<T> & vecVertexHandles, const vector<Eigen::Vector3d> & vecCamCenters) {
                 FSConstraint incoming(camIndex, featureIndex);
                 if ((int)m_setIntersections.size() < m_nMaxConstraintsKept) {
                     // The constraint set is not full, so insert the incoming free-space constraint and update nearest neighbor info.
@@ -208,12 +208,12 @@ namespace dlovi {
 #endif
 #ifdef NO_HEURISTIC_K
             template <class T>
-        void removeIntersection(int camIndex, int featureIndex, const vector<T> & vecVertexHandles, const vector<Matrix> & vecCamCenters) {
+        void removeIntersection(int camIndex, int featureIndex, const vector<T> & vecVertexHandles, const vector<Eigen::Vector3d> & vecCamCenters) {
           m_setIntersections.erase(FSConstraint(camIndex, featureIndex));
       }
 #else
             template <class T>
-            void removeIntersection(int camIndex, int featureIndex, const vector<T> & vecVertexHandles, const vector<Matrix> & vecCamCenters) {
+            void removeIntersection(int camIndex, int featureIndex, const vector<T> & vecVertexHandles, const vector<Eigen::Vector3d> & vecCamCenters) {
                 if ((int)m_setIntersections.size() <= 1) {
                     // No nearest neighbor info needs to be updated
                     m_setIntersections.erase(FSConstraint(camIndex, featureIndex));
@@ -246,7 +246,7 @@ namespace dlovi {
             }
 #endif
             template <class T>
-            float distFSConstraint(const FSConstraint & x, const FSConstraint & y, const vector<T> & vecVertexHandles, const vector<Matrix> & vecCamCenters) {
+            float distFSConstraint(const FSConstraint & x, const FSConstraint & y, const vector<T> & vecVertexHandles, const vector<Eigen::Vector3d> & vecCamCenters) {
                 return distFSConstraintTriangleAreaAaron(x, y, vecVertexHandles, vecCamCenters);
             }
             void clearIntersections() { m_setIntersections.clear(); }
@@ -260,23 +260,23 @@ namespace dlovi {
             // Private Methods
             template <class T>
             float distFSConstraintTriangleAreaAaron(const FSConstraint & x, const FSConstraint & y, const vector<T> & vecVertexHandles,
-                                                    const vector<Matrix> & vecCamCenters) {
+                                                    const vector<Eigen::Vector3d> & vecCamCenters) {
                 // Asymmetric distance heuristic.
                 // Sum of two triangle areas, use the base segment PQ as constraint x, and the two points from y as R1 and R2.
                 // Note: For efficiency, to avoid unnecessary division by 2 and square-roots, use the sum of twice-the-areas squared = squared area of parallelograms.
-                const Matrix & P = vecCamCenters[x.first];
-                Matrix Q(3, 1); Q(0) = vecVertexHandles[x.second]->point().x(); Q(1) = vecVertexHandles[x.second]->point().y(); Q(2) = vecVertexHandles[x.second]->point().z();
-                const Matrix & R1 = vecCamCenters[y.first];
-                Matrix R2(3, 1); R2(0) = vecVertexHandles[y.second]->point().x(); R2(1) = vecVertexHandles[y.second]->point().y(); R2(2) = vecVertexHandles[y.second]->point().z();
+                const Eigen::Vector3d & P = vecCamCenters[x.first];
+                Eigen::Vector3d Q(3, 1); Q(0) = vecVertexHandles[x.second]->point().x(); Q(1) = vecVertexHandles[x.second]->point().y(); Q(2) = vecVertexHandles[x.second]->point().z();
+                const Eigen::Vector3d & R1 = vecCamCenters[y.first];
+                Eigen::Vector3d R2(3, 1); R2(0) = vecVertexHandles[y.second]->point().x(); R2(1) = vecVertexHandles[y.second]->point().y(); R2(2) = vecVertexHandles[y.second]->point().z();
 
                 // Vector distances
-                Matrix PQ(Q - P);
-                Matrix PR1(R1 - P);
-                Matrix PR2(R2 - P);
+                Eigen::Vector3d PQ(Q - P);
+                Eigen::Vector3d PR1(R1 - P);
+                Eigen::Vector3d PR2(R2 - P);
 
                 // Sum of squared areas of parallelograms
-                Matrix PQxPR1(PQ.cross(PR1));
-                Matrix PQxPR2(PQ.cross(PR2));
+                Eigen::Vector3d PQxPR1(PQ.cross(PR1));
+                Eigen::Vector3d PQxPR2(PQ.cross(PR2));
                 return PQxPR1.dot(PQxPR1) + PQxPR2.dot(PQxPR2);
             }
 
@@ -296,10 +296,6 @@ namespace dlovi {
         typedef CGAL::Triangulation_hierarchy_3<Dt> Delaunay3;
         typedef Delaunay3::Point PointD3;
 
-        // Graph-cuts related typedefs
-        // typedef Graph<double, double, double> Graph_t; // Boykov & Kolmogorov's Code: TODO: implement a GraphWrapper for this.
-        typedef GraphWrapper_Boost Graph_t; // Boykov & Kolmogorov's Code
-
         // Hashing-related structs:
         struct HashVertHandle{
             size_t operator()(const Delaunay3::Vertex_handle x) const{ return (size_t)(&(*x)); } // use pointer to create hash
@@ -310,22 +306,22 @@ namespace dlovi {
 
         // Constructors
         FreespaceDelaunayAlgorithm();
-        FreespaceDelaunayAlgorithm(const vector<Matrix> & points, const vector<Matrix> & cams, const vector<Matrix> & camCenters,
-                                   const vector<Matrix> & principleRays, const vector<vector<int> > & visibilityList);
-        FreespaceDelaunayAlgorithm(const vector<Matrix> & points, const vector<Matrix> & cams, const vector<Matrix> & camCenters,
-                                   const vector<Matrix> & principleRays, const vector<Matrix> & normals);
+        FreespaceDelaunayAlgorithm(const vector<Eigen::Vector3d> & points, const vector<Eigen::Vector3d> & cams, const vector<Eigen::Vector3d> & camCenters,
+                                   const vector<Eigen::Vector3d> & principleRays, const vector<vector<int> > & visibilityList);
+        FreespaceDelaunayAlgorithm(const vector<Eigen::Vector3d> & points, const vector<Eigen::Vector3d> & cams, const vector<Eigen::Vector3d> & camCenters,
+                                   const vector<Eigen::Vector3d> & principleRays, const vector<Eigen::Vector3d> & normals);
         FreespaceDelaunayAlgorithm(const FreespaceDelaunayAlgorithm & ref);
 
         // Getters
-        const vector<Matrix> & getPoints() const;
-        Matrix getPoint(const int index) const;
+        const vector<Eigen::Vector3d> & getPoints() const;
+        Eigen::Vector3d getPoint(const int index) const;
         int numPoints() const;
-        const vector<Matrix> & getCams() const;
-        Matrix getCam(const int index) const;
-        const vector<Matrix> & getCamCenters() const;
-        Matrix getCamCenter(const int index) const;
-        const vector<Matrix> & getPrincipleRays() const;
-        Matrix getPrincipleRay(const int index) const;
+        const vector<Eigen::Vector3d> & getCams() const;
+        Eigen::Vector3d getCam(const int index) const;
+        const vector<Eigen::Vector3d> & getCamCenters() const;
+        Eigen::Vector3d getCamCenter(const int index) const;
+        const vector<Eigen::Vector3d> & getPrincipleRays() const;
+        Eigen::Vector3d getPrincipleRay(const int index) const;
         const vector<vector<int> > & getVisibilityList() const;
         const vector<int> & getVisibilityList(const int index) const;
         int numCams() const;
@@ -333,14 +329,14 @@ namespace dlovi {
         double getBoundsMax() const;
 
         // Setters
-        void setPoints(const vector<Matrix> & ref);
-        void setCams(const vector<Matrix> & ref);
-        void setCamCenters(const vector<Matrix> & ref);
-        void setPrincipleRays(const vector<Matrix> & ref);
+        void setPoints(const vector<Eigen::Vector3d> & ref);
+        void setCams(const vector<Eigen::Vector3d> & ref);
+        void setCamCenters(const vector<Eigen::Vector3d> & ref);
+        void setPrincipleRays(const vector<Eigen::Vector3d> & ref);
         void setVisibilityList(const vector<vector<int> > & ref);
 
-        void addPoint(const Matrix & ref);
-        void addCamCenter(const Matrix & ref);
+        void addPoint(const Eigen::Vector3d & ref);
+        void addCamCenter(const Eigen::Vector3d & ref);
         void addVisibilityPair(const int camIndex, const int pointIndex);
         void addVisibilityPair(const std::pair<int, int> visibilityPair);
 
@@ -349,7 +345,7 @@ namespace dlovi {
 
         // Public Methods
         bool isVisible(const int pointIndex, const int viewIndex) const;
-        void generateVisibilityFromNormals(const vector<Matrix> & normals, const double nFrontFacingAngleThreshold = pi / 3.0, const double nFov = pi / 2.0);
+        void generateVisibilityFromNormals(const vector<Eigen::Vector3d> & normals, const double nFrontFacingAngleThreshold = M_PI / 3.0, const double nFov = M_PI / 2.0);
 
         void TetrahedronBatchMethod(Delaunay3 & dt, const bool bUseViewingOrder = false) const;
         void IterateTetrahedronMethod(Delaunay3 & dt, vector<Delaunay3::Vertex_handle> & vecVertexHandles, const int frameIndex) const;
@@ -360,16 +356,16 @@ namespace dlovi {
         void applyConstraint(Delaunay3 & dt, vector<Delaunay3::Vertex_handle> & vecVertexHandles, const int camIndex, const int pointIndex) const;
         void removeConstraint(Delaunay3 & dt, vector<Delaunay3::Vertex_handle> & vecVertexHandles, const int camIndex, const int pointIndex) const;
 
-        void tetsToTris(const Delaunay3 & dt, vector<Matrix> & points, list<Matrix> & tris, const int nVoteThresh = 1) const;
-        int writeObj(const string filename, const vector<Matrix> & points, const list<Matrix> & tris) const;
-        void writeObj(ostream & outfile, const vector<Matrix> & points, const list<Matrix> & tris) const;
+        void tetsToTris(const Delaunay3 & dt, vector<Eigen::Vector3d> & points, list<Eigen::Vector3d> & tris, const int nVoteThresh = 1) const;
+        int writeObj(const string filename, const vector<Eigen::Vector3d> & points, const list<Eigen::Vector3d> & tris) const;
+        void writeObj(ostream & outfile, const vector<Eigen::Vector3d> & points, const list<Eigen::Vector3d> & tris) const;
 
         void calculateBoundsValues(); // TODO: Refactor.  E.g. move back to private, declare friend classes that need access, e.g. SFMTranscriptInterface_Delaunay
 
     private:
         // Private Methods
-        void copy(const vector<Matrix> & points, const vector<Matrix> & cams, const vector<Matrix> & camCenters,
-                  const vector<Matrix> & principleRays, const vector<vector<int> > & visibilityList);
+        void copy(const vector<Eigen::Vector3d> & points, const vector<Eigen::Vector3d> & cams, const vector<Eigen::Vector3d> & camCenters,
+                  const vector<Eigen::Vector3d> & principleRays, const vector<vector<int> > & visibilityList);
         void createBounds(Delaunay3 & dt) const;
         void markTetrahedraCrossingConstraint(Delaunay3 & dt, const Delaunay3::Vertex_handle hndlQ, const Segment & constraint) const;
         void markTetrahedraCrossingConstraintWithBookKeeping(Delaunay3 & dt, const vector<Delaunay3::Vertex_handle> & vecVertexHandles, const Delaunay3::Vertex_handle hndlQ,
@@ -377,19 +373,18 @@ namespace dlovi {
         void addNewlyObservedFeatures(Delaunay3 & dt, vector<Delaunay3::Vertex_handle> & vecVertexHandles, vector<int> & localVisList, const vector<int> & originalLocalVisList) const;
         void addNewlyObservedFeature(Delaunay3 & dt, vector<Delaunay3::Vertex_handle> & vecVertexHandles,
                                      set<pair<int, int>, Delaunay3CellInfo::LtConstraint> & setUnionedConstraints, const PointD3 & Q, const int nPointIndex) const;
-        bool triangleConstraintIntersectionTest(const Delaunay3::Facet & tri, const Matrix & segSrc, const Matrix & segDest) const;
-        bool triangleConstraintIntersectionTest(bool & bCrossesInteriorOfConstraint, const vector<Matrix> & points, const Matrix & tri, const pair<Matrix, Matrix> & constraint) const;
-        bool cellTraversalExitTest(int & f, const Delaunay3::Cell_handle tetCur, const Delaunay3::Cell_handle tetPrev, const Matrix & matQ, const Matrix & matO) const;
+        bool triangleConstraintIntersectionTest(const Delaunay3::Facet & tri, const Eigen::Vector3d & segSrc, const Eigen::Vector3d & segDest) const;
+        bool triangleConstraintIntersectionTest(bool & bCrossesInteriorOfConstraint, const vector<Eigen::Vector3d> & points, const Eigen::Vector3d & tri, const pair<Eigen::Vector3d, Eigen::Vector3d> & constraint) const;
+        bool cellTraversalExitTest(int & f, const Delaunay3::Cell_handle tetCur, const Delaunay3::Cell_handle tetPrev, const Eigen::Vector3d & matQ, const Eigen::Vector3d & matO) const;
         void facetToTri(const Delaunay3::Facet & f, vector<Delaunay3::Vertex_handle> & vecTri) const;
         double timestamp() const;
-        void tetsToTris_naive(const Delaunay3 & dt, vector<Matrix> & points, list<Matrix> & tris, const int nVoteThresh) const;
-        void tetsToTris_maxFlowSimple(const Delaunay3 & dt, vector<Matrix> & points, list<Matrix> & tris, const int nVoteThresh) const;
+        void tetsToTris_naive(const Delaunay3 & dt, vector<Eigen::Vector3d> & points, list<Eigen::Vector3d> & tris, const int nVoteThresh) const;
 
         // Private Members
-        vector<Matrix> m_points;
-        vector<Matrix> m_cams;
-        vector<Matrix> m_camCenters;
-        vector<Matrix> m_principleRays;
+        vector<Eigen::Vector3d> m_points;
+        vector<Eigen::Vector3d> m_cams;
+        vector<Eigen::Vector3d> m_camCenters;
+        vector<Eigen::Vector3d> m_principleRays;
         vector<vector<int> > m_visibilityList;
         double m_nBoundsMin;
         double m_nBoundsMax;
