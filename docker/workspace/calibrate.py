@@ -52,9 +52,14 @@ def run_comprehensive_calibration(objpoints, imgpoints_l, imgpoints_r, shape):
     print(" PHASE 1: INDIVIDUAL INTRINSICS")
     print("="*50)
     
-    # 1. Individual Calibration (Seeds the stereo calibrator)
-    ret_l, mtx_l, dist_l, _, _ = cv2.calibrateCamera(objpoints, imgpoints_l, shape, None, None)
-    ret_r, mtx_r, dist_r, _, _ = cv2.calibrateCamera(objpoints, imgpoints_r, shape, None, None)
+    # --- CMPUT428: Force a gentle 4th-degree polynomial by killing k3! ---
+    calib_flags = cv2.CALIB_FIX_K3
+    
+    # 1. Individual Calibration
+    ret_l, mtx_l, dist_l, _, _ = cv2.calibrateCamera(
+        objpoints, imgpoints_l, shape, None, None, flags=calib_flags)
+    ret_r, mtx_r, dist_r, _, _ = cv2.calibrateCamera(
+        objpoints, imgpoints_r, shape, None, None, flags=calib_flags)
     
     print(f"Left RMS: {ret_l:.4f} | Right RMS: {ret_r:.4f}")
 
