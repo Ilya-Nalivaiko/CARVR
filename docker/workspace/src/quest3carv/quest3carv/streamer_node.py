@@ -41,23 +41,37 @@ class MeshStreamerNode(Node):
         if not msg.points:
             return
 
-        # The Marker is a TRIANGLE_LIST (A,B,C, A,B,C...)
-        # We need to convert it to a LINE_LIST (A,B, B,C, C,A...) so OpenGL ES can draw it as a wireframe
+        # --- THE FIX: Coordinate Frame Swap ---
+        # OpenCV/ROS: +Z is forward, +Y is down
+        # OpenXR:     -Z is forward, +Y is up
+        def xr_convert(p):
+            # X stays the same (Right is Right)
+            # Y and Z get inverted
+            return p.x, -p.y, -p.z
+
         lines = []
         for i in range(0, len(msg.points), 3):
-            p1, p2, p3 = msg.points[i], msg.points[i+1], msg.points[i+2]
+            # Grab the 3 points of the triangle
+            p1 = msg.points[i]
+            p2 = msg.points[i+1]
+            p3 = msg.points[i+2]
             
+            # Convert them to OpenXR Space
+            c1 = xr_convert(p1)
+            c2 = xr_convert(p2)
+            c3 = xr_convert(p3)
+
             # Line 1: p1 -> p2
-            lines.extend([p1.x, p1.y, p1.z, p2.x, p2.y, p2.z])
+            lines.extend([c1[0], c1[1], c1[2], c2[0], c2[1], c2[2]])
             # Line 2: p2 -> p3
-            lines.extend([p2.x, p2.y, p2.z, p3.x, p3.y, p3.z])
+            lines.extend([c2[0], c2[1], c2[2], c3[0], c3[1], c3[2]])
             # Line 3: p3 -> p1
-            lines.extend([p3.x, p3.y, p3.z, p1.x, p1.y, p1.z])
+            lines.extend([c3[0], c3[1], c3[2], c1[0], c1[1], c1[2]])
 
         # Pack into binary: [Header: Num_Floats] + [Float Array]
         num_floats = len(lines)
-        header = struct.pack('<I', num_floats) # Unsigned 32-bit int
-        payload = struct.pack(f'<{num_floats}f', *lines) # Little-endian floats
+        header = struct.pack('<I', num_floats) 
+        payload = struct.pack(f'<{num_floats}f', *lines) 
         
         try:
             self.sock.sendall(header + payload)
