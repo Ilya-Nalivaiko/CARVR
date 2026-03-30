@@ -1086,6 +1086,9 @@ void AppRenderer::RenderFrame(AppRenderer::FrameIn frameIn) {
         }
 
         if (!local_vertices.empty()) {
+            // 1. DISABLE DEPTH TEST: Force it to draw ON TOP of everything (ignore walls/floors)
+            GL(glDisable(GL_DEPTH_TEST));
+            
             GL(glUseProgram(scene.WireframeProgram.Program));
             
             GL(glBindBufferBase(
@@ -1105,17 +1108,25 @@ void AppRenderer::RenderFrame(AppRenderer::FrameIn frameIn) {
             }
 
             GL(glBindVertexArray(scene.WireframeVAO));
-
-            // Orphan the old buffer (nullptr) to prevent GPU stalls, then upload new data
             GL(glBindBuffer(GL_ARRAY_BUFFER, scene.WireframeVBO));
-            GL(glBufferData(GL_ARRAY_BUFFER, local_vertices.size() * sizeof(float), nullptr, GL_DYNAMIC_DRAW));
+            
+            // Upload the newest floats
             GL(glBufferData(GL_ARRAY_BUFFER, local_vertices.size() * sizeof(float), local_vertices.data(), GL_DYNAMIC_DRAW));
+            
+            // 2. FORCE ATTRIBUTE BINDING: Fixes Snapdragon driver VAO bugs
+            GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+            GL(glVertexAttribPointer(VERTEX_ATTRIBUTE_LOCATION_POSITION, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (const GLvoid*)0));
 
             GL(glLineWidth(3.0f)); 
+            
+            // Draw it!
             GL(glDrawArrays(GL_LINES, 0, local_vertices.size() / 3));
 
             GL(glBindVertexArray(0));
             GL(glUseProgram(0));
+            
+            // 3. TURN DEPTH TEST BACK ON: So the rest of the app doesn't break
+            GL(glEnable(GL_DEPTH_TEST));
         }
     }
 
