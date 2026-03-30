@@ -949,8 +949,8 @@ void StartDualCameraStreams(App* appContext) {
     ALOGV("CMPUT428: Initializing Dual Stereo Camera Streams...");
 
     // 1. Init the Encoders (Make sure to use your Bazzite laptop's IP!)
-    InitStreamContext(leftStream, "192.168.1.76", 5000, leftCameraId.c_str());
-    InitStreamContext(rightStream, "192.168.1.76", 5001, rightCameraId.c_str());
+    InitStreamContext(leftStream, "192.168.1.133", 5000, leftCameraId.c_str());
+    InitStreamContext(rightStream, "192.168.1.133", 5001, rightCameraId.c_str());
 
     // 2. Start Left Camera
     ACameraDevice_StateCallbacks leftCallbacks{nullptr, OnDeviceDisconnected, OnDeviceError};

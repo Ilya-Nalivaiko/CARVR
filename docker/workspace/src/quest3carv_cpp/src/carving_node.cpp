@@ -10,7 +10,7 @@
 
 class CarvingNode : public rclcpp::Node {
 public:
-    CarvingNode() : Node("carving_node"), keyframe_count_(0), process_every_n_frames_(3) {
+    CarvingNode() : Node("carving_node"), keyframe_count_(0), process_every_n_frames_(2) {
         sub_kf_ = this->create_subscription<quest3carv_interfaces::msg::KeyframeData>(
             "quest3carv/keyframe", 10, 
             std::bind(&CarvingNode::keyframe_callback, this, std::placeholders::_1));

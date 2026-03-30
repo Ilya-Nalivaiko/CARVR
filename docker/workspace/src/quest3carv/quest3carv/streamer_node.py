@@ -10,7 +10,7 @@ class MeshStreamerNode(Node):
         super().__init__('mesh_streamer')
         
         # --- CONFIG ---
-        self.quest_ip = '192.168.1.143' # 143 at home
+        self.quest_ip = '192.168.1.147' # 143 at home 147 in lab
         self.tcp_port = 5002
         
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
