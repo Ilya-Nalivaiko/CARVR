@@ -33,5 +33,14 @@ def generate_launch_description():
             name='carving_node',
             output='screen',
             emulate_tty=True
-        )
+        ),
+
+        # Node 4: Send Mesh to Quest
+        Node(
+            package='quest3carv',
+            executable='sender',
+            name='mesh_sender',
+            output='screen',
+            emulate_tty=True
+        ),
     ])

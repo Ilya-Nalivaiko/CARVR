@@ -120,6 +120,12 @@ std::vector<uint8_t> spsPpsCache;
 // or rely on camera index heuristics if the exact hex tag isn't exposed in your NDK version)
 uint32_t META_CAMERA_SOURCE_TAG = 0x80000000;
 
+// this is for the mesh getting streamed back
+#include <mutex>
+std::vector<float> g_wireframeVertices;
+std::mutex g_wireframeMutex;
+std::thread meshReceiverThread;
+
 using namespace OVR;
 
 #if !defined(EGL_OPENGL_ES3_BIT_KHR)
@@ -585,7 +591,9 @@ void App::HandleXrEvents() {
                         break;
                     case XR_SESSION_STATE_READY:
                         // Inside App::HandleSessionStateChanges under XR_SESSION_STATE_READY
-                        StartDualCameraStreams(this); // "this" works here because we are inside the App class!                 
+                        StartDualCameraStreams(this); // "this" works here because we are inside the App class!       
+                        // Fire up the thread to recieve the mesh
+                        meshReceiverThread = std::thread(MeshReceiverLoop);          
                     case XR_SESSION_STATE_STOPPING:
                         HandleSessionStateChanges(session_state_changed_event->state);
                         break;
@@ -866,6 +874,72 @@ void InitStreamContext(StreamContext& ctx, const char* ip, int port, const char*
     ctx.encoderThread = std::thread(EncoderDrainLoop, &ctx);
     
     ALOGV("CMPUT428: Stream Context Initialized for Camera %s on Port %d", camId, port);
+}
+
+void MeshReceiverLoop() {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
+
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        ALOGE("CMPUT428: Mesh socket failed");
+        return;
+    }
+
+    // Forcefully attach socket to the port 5002
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+        ALOGE("CMPUT428: Mesh setsockopt failed");
+    }
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(5002);
+
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        ALOGE("CMPUT428: Mesh bind failed");
+        return;
+    }
+    if (listen(server_fd, 3) < 0) {
+        ALOGE("CMPUT428: Mesh listen failed");
+        return;
+    }
+
+    ALOGV("CMPUT428: Mesh TCP Server listening on port 5002!");
+
+    while (true) {
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+            continue;
+        }
+        ALOGV("CMPUT428: Python Mesh Streamer Connected!");
+
+        while (true) {
+            uint32_t num_floats = 0;
+            int bytes_read = recv(new_socket, &num_floats, sizeof(num_floats), MSG_WAITALL);
+            if (bytes_read <= 0) break; // Connection closed or error
+
+            std::vector<float> temp_buffer(num_floats);
+            size_t total_bytes = num_floats * sizeof(float);
+            size_t received = 0;
+            char* ptr = (char*)temp_buffer.data();
+
+            // Read the exact payload size
+            while (received < total_bytes) {
+                int r = recv(new_socket, ptr + received, total_bytes - received, 0);
+                if (r <= 0) break;
+                received += r;
+            }
+
+            // Safely swap the new mesh into the global renderer memory
+            if (received == total_bytes) {
+                std::lock_guard<std::mutex> lock(g_wireframeMutex);
+                g_wireframeVertices = std::move(temp_buffer);
+            } else {
+                break;
+            }
+        }
+        close(new_socket);
+        ALOGV("CMPUT428: Python Mesh Streamer Disconnected. Waiting for reconnect...");
+    }
 }
 
 void StartDualCameraStreams(App* appContext) {

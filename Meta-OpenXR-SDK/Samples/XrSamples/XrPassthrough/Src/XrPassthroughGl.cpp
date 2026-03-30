@@ -56,6 +56,12 @@ Copyright	:	Copyright (c) Facebook Technologies, LLC and its affiliates. All rig
 
 #include "XrPassthroughGl.h"
 
+// CMPUT 428 custom stuff
+#include <mutex>
+#include <vector>
+extern std::vector<float> g_wireframeVertices;
+extern std::mutex g_wireframeMutex;
+
 using namespace OVR;
 
 // EXT_texture_border_clamp
@@ -936,6 +942,26 @@ void Scene::Create() {
         ALOGE("Failed to compile circle program");
     }
 
+    // --- CMPUT428: Dynamic Wireframe Shader ---
+    static const char WF_FRAG_SHADER[] =
+        "out lowp vec4 outColor;\n"
+        "void main()\n"
+        "{\n"
+        "   outColor = vec4( 0.0, 1.0, 0.5, 1.0 );\n" // Neon Cyberpunk Green!
+        "}\n";
+
+    if (!WireframeProgram.Create(STAGE_VERTEX_SHADER, WF_FRAG_SHADER)) {
+        ALOGE("Failed to compile wireframe program");
+    }
+    GL(glGenVertexArrays(1, &WireframeVAO));
+    GL(glGenBuffers(1, &WireframeVBO));
+
+    GL(glBindVertexArray(WireframeVAO));
+    GL(glBindBuffer(GL_ARRAY_BUFFER, WireframeVBO));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+    GL(glVertexAttribPointer(VERTEX_ATTRIBUTE_LOCATION_POSITION, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (const GLvoid*)0));
+    GL(glBindVertexArray(0));
+
     CreatedScene = true;
 
     CreateVAOs();
@@ -1049,6 +1075,47 @@ void AppRenderer::RenderFrame(AppRenderer::FrameIn frameIn) {
     GL(glDrawElements(GL_LINES, scene.Axes.IndexCount, GL_UNSIGNED_SHORT, nullptr));
     GL(glBindVertexArray(0));
     GL(glUseProgram(0));
+
+    // --- CMPUT428: Draw the Dynamic Carved Mesh ---
+    {
+        std::lock_guard<std::mutex> lock(g_wireframeMutex);
+        if (!g_wireframeVertices.empty()) {
+            GL(glUseProgram(scene.WireframeProgram.Program));
+            
+            // Give the shader the camera projection matrices
+            GL(glBindBufferBase(
+                GL_UNIFORM_BUFFER,
+                scene.WireframeProgram.UniformBinding[Uniform::Index::SCENE_MATRICES],
+                scene.SceneMatrices));
+
+            if (scene.WireframeProgram.UniformLocation[Uniform::Index::VIEW_ID] >= 0) {
+                GL(glUniform1i(scene.WireframeProgram.UniformLocation[Uniform::Index::VIEW_ID], 0));
+            }
+
+            // Our mesh is ALREADY in world coordinates, so the Model Matrix is just the Identity (1.0 scale, no rotation)
+            if (scene.WireframeProgram.UniformLocation[Uniform::Index::MODEL_MATRIX] >= 0) {
+                const Matrix4f identity = Matrix4f::Identity();
+                GL(glUniformMatrix4fv(
+                    scene.WireframeProgram.UniformLocation[Uniform::Index::MODEL_MATRIX],
+                    1, GL_TRUE, &identity.M[0][0]));
+            }
+
+            GL(glBindVertexArray(scene.WireframeVAO));
+
+            // Upload the newest floats from the Python script to the GPU
+            GL(glBindBuffer(GL_ARRAY_BUFFER, scene.WireframeVBO));
+            GL(glBufferData(GL_ARRAY_BUFFER, g_wireframeVertices.size() * sizeof(float), g_wireframeVertices.data(), GL_DYNAMIC_DRAW));
+
+            // Make the lines thick so we can see them over the bright passthrough!
+            GL(glLineWidth(3.0f)); 
+
+            // Draw every 3 floats as a vertex, connected as lines
+            GL(glDrawArrays(GL_LINES, 0, g_wireframeVertices.size() / 3));
+
+            GL(glBindVertexArray(0));
+            GL(glUseProgram(0));
+        }
+    }
 
     if (frameIn.HasStage) {
         // stage axes
