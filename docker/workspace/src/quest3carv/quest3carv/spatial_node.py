@@ -187,17 +187,16 @@ class SpatialReconstructionNode(Node):
         
         # Step B: Keyframe Logic (Mapping)
         if self.is_significant_move(msg_p.pose):
-            self.get_logger().info("KEYFRAME TRIGGERED")
             self.last_kf_pose = msg_p.pose
             
             # Extract high-confidence points visible from this keyframe
             points_3d, points_2d, ages, ids_3d = self.tracker.get_confident_points()
 
-            if len(points_3d) < 20:
-                self.get_logger().info(f"Not many points ({len(points_3d)})")
+            if len(points_3d) < 5:
+                self.get_logger().info(f"Not enough points ({len(points_3d)})")
                 return
             
-            self.get_logger().info("New viewpoints added.")
+            self.get_logger().info(f"New viewpoint added with {len(points_3d)} points")
             
             # Call the updated visualization functions
             self.visualize_keyframe(img_l, points_3d, points_2d, ages)

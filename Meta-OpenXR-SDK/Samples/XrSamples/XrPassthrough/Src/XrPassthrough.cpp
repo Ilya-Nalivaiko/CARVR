@@ -71,6 +71,7 @@ Authors   :
 // Forward declaration
 struct App;
 void StartDualCameraStreams(App* appContext);
+void MeshReceiverLoop();
 
 // --- CMPUT428 Custom Globals ---
 struct StreamContext {
@@ -727,10 +728,10 @@ void OnCaptureCompleted(void* context, ACameraCaptureSession* session,
                 XrPosef pose = loc.pose;
 
                 // 1. Log it for sanity checking
-                ALOGV("CMPUT428: SYNCED! Shutter: %lld | Pos(%.3f, %.3f, %.3f) | Rot(%.3f, %.3f, %.3f, %.3f)",
-                      (long long)frameTimeNs,
-                      pose.position.x, pose.position.y, pose.position.z,
-                      pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
+//                ALOGV("CMPUT428: SYNCED! Shutter: %lld | Pos(%.3f, %.3f, %.3f) | Rot(%.3f, %.3f, %.3f, %.3f)",
+//                      (long long)frameTimeNs,
+//                      pose.position.x, pose.position.y, pose.position.z,
+//                      pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
 
                 // 2. Package it into our research struct
                 SyncedPose currentPose;
@@ -882,63 +883,63 @@ void MeshReceiverLoop() {
     int opt = 1;
     int addrlen = sizeof(address);
 
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-        ALOGE("CMPUT428: Mesh socket failed");
-        return;
-    }
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) return;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    // Forcefully attach socket to the port 5002
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
-        ALOGE("CMPUT428: Mesh setsockopt failed");
-    }
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(5002);
 
-    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        ALOGE("CMPUT428: Mesh bind failed");
-        return;
-    }
-    if (listen(server_fd, 3) < 0) {
-        ALOGE("CMPUT428: Mesh listen failed");
-        return;
-    }
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) return;
+    if (listen(server_fd, 3) < 0) return;
 
     ALOGV("CMPUT428: Mesh TCP Server listening on port 5002!");
 
     while (true) {
-        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
-            continue;
-        }
+        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) continue;
         ALOGV("CMPUT428: Python Mesh Streamer Connected!");
 
         while (true) {
+            // 1. Bulletproof Header Read (4 bytes)
             uint32_t num_floats = 0;
-            int bytes_read = recv(new_socket, &num_floats, sizeof(num_floats), MSG_WAITALL);
-            if (bytes_read <= 0) break; // Connection closed or error
+            size_t header_received = 0;
+            char* header_ptr = (char*)&num_floats;
+            while(header_received < sizeof(num_floats)) {
+                int r = recv(new_socket, header_ptr + header_received, sizeof(num_floats) - header_received, 0);
+                if (r <= 0) break;
+                header_received += r;
+            }
+            if (header_received < sizeof(num_floats)) break; // Connection dropped
 
+            // Sanity check to prevent out-of-memory crashes
+            if (num_floats == 0 || num_floats > 5000000) break;
+
+            // 2. Bulletproof Payload Read
             std::vector<float> temp_buffer(num_floats);
             size_t total_bytes = num_floats * sizeof(float);
             size_t received = 0;
             char* ptr = (char*)temp_buffer.data();
 
-            // Read the exact payload size
             while (received < total_bytes) {
                 int r = recv(new_socket, ptr + received, total_bytes - received, 0);
                 if (r <= 0) break;
                 received += r;
             }
 
-            // Safely swap the new mesh into the global renderer memory
+            // 3. Thread-Safe Memory Swap & Logging
             if (received == total_bytes) {
-                std::lock_guard<std::mutex> lock(g_wireframeMutex);
-                g_wireframeVertices = std::move(temp_buffer);
+                {
+                    std::lock_guard<std::mutex> lock(g_wireframeMutex);
+                    g_wireframeVertices = std::move(temp_buffer);
+                }
+                // THIS IS THE MOST IMPORTANT LINE: Prove it arrived!
+                ALOGV("CMPUT428: MESH UPDATED! Received %u floats (%u lines)", num_floats, num_floats / 6);
             } else {
                 break;
             }
         }
         close(new_socket);
-        ALOGV("CMPUT428: Python Mesh Streamer Disconnected. Waiting for reconnect...");
+        ALOGV("CMPUT428: Streamer Disconnected. Waiting for reconnect...");
     }
 }
 

@@ -1078,11 +1078,16 @@ void AppRenderer::RenderFrame(AppRenderer::FrameIn frameIn) {
 
     // --- CMPUT428: Draw the Dynamic Carved Mesh ---
     {
-        std::lock_guard<std::mutex> lock(g_wireframeMutex);
-        if (!g_wireframeVertices.empty()) {
+        std::vector<float> local_vertices;
+        {
+            // Quickly copy the data and UNLOCK the mutex so the network thread doesn't stall!
+            std::lock_guard<std::mutex> lock(g_wireframeMutex);
+            local_vertices = g_wireframeVertices;
+        }
+
+        if (!local_vertices.empty()) {
             GL(glUseProgram(scene.WireframeProgram.Program));
             
-            // Give the shader the camera projection matrices
             GL(glBindBufferBase(
                 GL_UNIFORM_BUFFER,
                 scene.WireframeProgram.UniformBinding[Uniform::Index::SCENE_MATRICES],
@@ -1092,7 +1097,6 @@ void AppRenderer::RenderFrame(AppRenderer::FrameIn frameIn) {
                 GL(glUniform1i(scene.WireframeProgram.UniformLocation[Uniform::Index::VIEW_ID], 0));
             }
 
-            // Our mesh is ALREADY in world coordinates, so the Model Matrix is just the Identity (1.0 scale, no rotation)
             if (scene.WireframeProgram.UniformLocation[Uniform::Index::MODEL_MATRIX] >= 0) {
                 const Matrix4f identity = Matrix4f::Identity();
                 GL(glUniformMatrix4fv(
@@ -1102,15 +1106,13 @@ void AppRenderer::RenderFrame(AppRenderer::FrameIn frameIn) {
 
             GL(glBindVertexArray(scene.WireframeVAO));
 
-            // Upload the newest floats from the Python script to the GPU
+            // Orphan the old buffer (nullptr) to prevent GPU stalls, then upload new data
             GL(glBindBuffer(GL_ARRAY_BUFFER, scene.WireframeVBO));
-            GL(glBufferData(GL_ARRAY_BUFFER, g_wireframeVertices.size() * sizeof(float), g_wireframeVertices.data(), GL_DYNAMIC_DRAW));
+            GL(glBufferData(GL_ARRAY_BUFFER, local_vertices.size() * sizeof(float), nullptr, GL_DYNAMIC_DRAW));
+            GL(glBufferData(GL_ARRAY_BUFFER, local_vertices.size() * sizeof(float), local_vertices.data(), GL_DYNAMIC_DRAW));
 
-            // Make the lines thick so we can see them over the bright passthrough!
             GL(glLineWidth(3.0f)); 
-
-            // Draw every 3 floats as a vertex, connected as lines
-            GL(glDrawArrays(GL_LINES, 0, g_wireframeVertices.size() / 3));
+            GL(glDrawArrays(GL_LINES, 0, local_vertices.size() / 3));
 
             GL(glBindVertexArray(0));
             GL(glUseProgram(0));
