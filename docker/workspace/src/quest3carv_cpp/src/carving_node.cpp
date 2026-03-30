@@ -10,7 +10,7 @@
 
 class CarvingNode : public rclcpp::Node {
 public:
-    CarvingNode() : Node("carving_node"), keyframe_count_(0), process_every_n_frames_(2) {
+    CarvingNode() : Node("carving_node"), keyframe_count_(0), process_every_n_frames_(1) {
         sub_kf_ = this->create_subscription<quest3carv_interfaces::msg::KeyframeData>(
             "quest3carv/keyframe", 10, 
             std::bind(&CarvingNode::keyframe_callback, this, std::placeholders::_1));
@@ -40,7 +40,7 @@ private:
                 msg->camera_pose.orientation.y,
                 msg->camera_pose.orientation.z
             );
-            Eigen::Vector3d look_dir = q * Eigen::Vector3d(0, 0, 1);
+            Eigen::Vector3d look_dir = q * Eigen::Vector3d(0, 0, -1);
 
             // 2. Feed the Carver State via Proper API (Instant, No Lag)
             carver_.addCamCenter(cam_center); 

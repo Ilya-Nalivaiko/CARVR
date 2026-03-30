@@ -42,12 +42,9 @@ class MeshStreamerNode(Node):
             return
 
         # --- THE FIX: Coordinate Frame Swap ---
-        # OpenCV/ROS: +Z is forward, +Y is down
-        # OpenXR:     -Z is forward, +Y is up
         def xr_convert(p):
-            # X stays the same (Right is Right)
-            # Y and Z get inverted
-            return p.x, -p.y, -p.z
+            # Points are now natively born in the correct OpenXR frame
+            return p.x, p.y, p.z
 
         lines = []
         for i in range(0, len(msg.points), 3):

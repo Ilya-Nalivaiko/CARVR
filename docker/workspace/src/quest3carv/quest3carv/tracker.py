@@ -126,8 +126,12 @@ class StereoPointTracker:
             R, t = tw2c[:3, :3], tw2c[:3, 3]
             for p_world in self.points_3d:
                 p_cam = R @ p_world + t
-                if p_cam[2] > MIN_DEPTH_PROJ:
-                    initial_guesses.append([(self.fx * p_cam[0] / p_cam[2]) + self.cx, (self.fy * p_cam[1] / p_cam[2]) + self.cy])
+                # --- THE FIX: OpenXR Z is negative forward! ---
+                if p_cam[2] < -MIN_DEPTH_PROJ: 
+                    # p_cam[2] is negative, so divide by -p_cam[2] to project
+                    u = self.fx * (p_cam[0] / -p_cam[2]) + self.cx
+                    v = self.fy * (p_cam[1] / p_cam[2]) + self.cy # -Y / -Z cancels out
+                    initial_guesses.append([u, v])
                 else: 
                     initial_guesses.append([0, 0])
             next_pts_guess = np.array(initial_guesses, dtype=np.float32).reshape(-1, 1, 2)
@@ -278,7 +282,8 @@ class StereoPointTracker:
             cv2.putText(debug_out, f"F:{self.frame_idx} Pts:{active_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
             if SAVE_DEBUG_IMAGES:
-                cv2.imwrite(os.path.join(DEBUG_DIR, f"frame_{self.frame_idx:04d}.jpg"), debug_out)
+                #cv2.imwrite(os.path.join(DEBUG_DIR, f"frame_n{self.frame_idx:04d}.jpg"), debug_out)
+                cv2.imwrite(os.path.join(DEBUG_DIR, f"frame_latest.jpg"), debug_out)
             
             if SHOW_DEBUG_IMAGES:
                 cv2.imshow("Stereo Tracker Live", debug_out)
@@ -294,7 +299,7 @@ class StereoPointTracker:
         """Returns the 3D point in the LOCAL camera coordinate frame."""
         disp = max(MIN_DISPARITY, u_l - u_r)
         depth = (self.fx * self.baseline) / disp
-        return np.array([(u_l - self.cx) * depth / self.fx, (v - self.cy) * depth / self.fy, depth])
+        return np.array([(u_l - self.cx) * depth / self.fx, -((v - self.cy) * depth / self.fy), -depth])
 
     def get_confident_points(self):
         """Returns points exceeding min_age_confidence."""

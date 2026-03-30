@@ -27,10 +27,51 @@ class SpatialReconstructionNode(Node):
         if self.save_ply_clouds and not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
         
-        # Initialize Tracker (Assume K and Baseline are known for Quest 3)
-        K = np.array([[460, 0, 320], [0, 460, 320], [0, 0, 1]]) # TODO get true focal length with the lab script
-        self.tracker = StereoPointTracker(K, baseline=0.064)
+        # ==========================================================
+        # --- TRUE STEREO RECTIFICATION MATRICES ---
+        # ==========================================================
+        self.K_l = np.array([[435.61912538,   0.        , 317.98388652],
+                             [  0.        , 437.9473279 , 321.04086798],
+                             [  0.        ,   0.        ,   1.        ]])
         
+        self.K_r = np.array([[434.80716153,   0.        , 317.57993105],
+                             [  0.        , 437.1579483 , 320.20533693],
+                             [  0.        ,   0.        ,   1.        ]])
+
+        # True distortion is required for cv2.remap to properly fix the toe-in
+        self.D_l = np.array([-0.00644166, -0.00671382,  0.00476713, -0.00405459,  0.        ])
+        self.D_r = np.array([ 0.01242142, -0.01958011,  0.00300138, -0.00457861,  0.        ])
+
+        # Extrinsics (relative rotation)
+        self.R1 = np.array([[ 9.99984629e-01, -8.07736960e-04, -5.48529426e-03],
+                            [ 8.01813857e-04,  9.99999093e-01, -1.08192834e-03],
+                            [ 5.48616320e-03,  1.07751353e-03,  9.99984370e-01]])
+        self.R2 = np.array([[ 0.99999545,  0.00224215, -0.00201971],
+                            [-0.00223997,  0.99999691,  0.00108199],
+                            [ 0.00202213, -0.00107746,  0.99999738]])
+        
+        self.P1 = np.array([[440.9294569 ,   0.        , 320.29873276,   0.        ],
+                            [  0.        , 440.9294569 , 320.62382889,   0.        ],
+                            [  0.        ,   0.        ,   1.        ,   0.        ]])
+        self.P2 = np.array([[ 4.40929457e+02,  0.00000000e+00,  3.20298733e+02, -2.81582822e+04],
+                            [ 0.00000000e+00,  4.40929457e+02,  3.20623829e+02,  0.00000000e+00],
+                            [ 0.00000000e+00,  0.00000000e+00,  1.00000000e+00,  0.00000000e+00]])
+        
+        # The ultimate agreed-upon baseline
+        self.true_baseline = 0.064
+
+        # Generate the warping maps (Only needs to happen once at startup!)
+        self.map_l_x, self.map_l_y = cv2.initUndistortRectifyMap(
+            self.K_l, self.D_l, self.R1, self.P1, (640, 640), cv2.CV_32FC1)
+        
+        self.map_r_x, self.map_r_y = cv2.initUndistortRectifyMap(
+            self.K_r, self.D_r, self.R2, self.P2, (640, 640), cv2.CV_32FC1)
+
+        # Initialize Tracker using the Virtual Rectified Camera Intrinsic (P1)
+        rectified_K = self.P1[:3, :3] 
+        self.tracker = StereoPointTracker(rectified_K, baseline=self.true_baseline)
+        # ==========================================================
+
         # Keyframe Logic State
         self.last_kf_pose = None
         self.keyframes = [] # List of (Image, Pose, Points)
@@ -162,6 +203,10 @@ class SpatialReconstructionNode(Node):
         img_l = self.bridge.imgmsg_to_cv2(msg_l, "bgr8")
         img_r = self.bridge.imgmsg_to_cv2(msg_r, "bgr8")
         
+        # --- NEW: Iron out distortion AND mathematically parallelize the cameras ---
+        img_l = cv2.remap(img_l, self.map_l_x, self.map_l_y, cv2.INTER_LINEAR)
+        img_r = cv2.remap(img_r, self.map_r_x, self.map_r_y, cv2.INTER_LINEAR)
+        
         # Convert PoseStamped to 4x4 for the tracker
         curr_q = [msg_p.pose.orientation.x, msg_p.pose.orientation.y, msg_p.pose.orientation.z, msg_p.pose.orientation.w]
         curr_t = [msg_p.pose.position.x, msg_p.pose.position.y, msg_p.pose.position.z]
@@ -173,14 +218,21 @@ class SpatialReconstructionNode(Node):
         # --- NEW: Extrinsic Offset (Head to Left Camera) ---
         # Shifts the origin ~32mm Left, ~15mm Down, ~30mm Forward (where the camera is more or less relative to the head)
         T_head_to_cam = np.eye(4)
-        T_head_to_cam[0, 3] = -0.032  
-        T_head_to_cam[1, 3] = -0.015  
-        T_head_to_cam[2, 3] =  0.030  
+        T_head_to_cam[0, 3] = -0.032  # Left
+        T_head_to_cam[1, 3] = -0.015  # Down (OpenXR Y is Up)
+        T_head_to_cam[2, 3] = -0.030  # FIX: OpenXR -Z is Forward!
         
         # Apply the offset in the local frame
         mat = head_mat @ T_head_to_cam
-        mat[:3, :3] = R.from_quat(curr_q).as_matrix()
-        mat[:3, 3] = curr_t
+        
+        # FIX: Remove the following two lines from your old code!
+        # They were erasing the translation offset and rotation you just calculated.
+        # mat[:3, :3] = R.from_quat(curr_q).as_matrix() 
+        # mat[:3, 3] = curr_t
+        
+        # FIX: Apply the stereo rectification rotation (R1)
+        # We need the pose of the RECTIFIED camera in world space, not the physical one.
+        mat[:3, :3] = mat[:3, :3] @ self.R1.T
         
         # Step A: Ingest (Transient Tracking)
         self.tracker.ingest_frame(img_l, img_r, mat)
