@@ -20,8 +20,8 @@ class SpatialReconstructionNode(Node):
         self.bridge = CvBridge()
         
         # Configuration for Keyframe Debugging
-        self.save_kf_images = True
-        self.show_kf_images = False
+        self.save_kf_images = False
+        self.show_kf_images = True
         self.save_ply_clouds = True
         self.output_dir = "/workspace/debug/clouds"
         if self.save_ply_clouds and not os.path.exists(self.output_dir):
@@ -75,8 +75,8 @@ class SpatialReconstructionNode(Node):
         # Keyframe Logic State
         self.last_kf_pose = None
         self.keyframes = [] # List of (Image, Pose, Points)
-        self.dist_threshold = 0.05 # 5cm
-        self.rot_threshold = 5.0  # 5 degrees
+        self.dist_threshold = 0.02 # cm
+        self.rot_threshold = 2.0  # degrees
 
         # Keyframe Publisher
         self.kf_pub = self.create_publisher(KeyframeData, 'quest3carv/keyframe', 10)
@@ -244,10 +244,6 @@ class SpatialReconstructionNode(Node):
             # Extract high-confidence points visible from this keyframe
             points_3d, points_2d, ages, ids_3d = self.tracker.get_confident_points()
 
-            if len(points_3d) < 5:
-                self.get_logger().info(f"Not enough points ({len(points_3d)})")
-                return
-            
             self.get_logger().info(f"New viewpoint added with {len(points_3d)} points")
             
             # Call the updated visualization functions

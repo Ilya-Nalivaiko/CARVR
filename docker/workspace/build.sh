@@ -6,5 +6,5 @@ colcon build --packages-select quest3carv_interfaces
 # Source the new message overlay
 source install/setup.bash
 
-# Build the rest (It will fail on compiling carving_node because we haven't written it yet, but it will validate the CMake structure!)
+# Build the rest
 colcon build
