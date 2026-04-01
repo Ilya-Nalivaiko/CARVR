@@ -122,7 +122,11 @@ struct Scene {
     Program CircleProgram;
     float ClearColor[4];
     TrackedController trackedController[4]; // left aim, left grip, right aim, right grip
-    Program WireframeProgram;
+    Program OccluderProgram;
+    Program CarvLineProgram;
+    
+    GLuint TriVAO = 0;
+    GLuint TriVBO = 0;
     GLuint WireframeVAO = 0;
     GLuint WireframeVBO = 0;
 };

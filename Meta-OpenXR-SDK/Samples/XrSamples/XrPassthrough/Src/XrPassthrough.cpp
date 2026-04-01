@@ -123,6 +123,7 @@ uint32_t META_CAMERA_SOURCE_TAG = 0x80000000;
 
 // this is for the mesh getting streamed back
 #include <mutex>
+std::vector<float> g_triVertices; 
 std::vector<float> g_wireframeVertices;
 std::mutex g_wireframeMutex;
 std::thread meshReceiverThread;
@@ -900,42 +901,39 @@ void MeshReceiverLoop() {
         ALOGV("CMPUT428: Python Mesh Streamer Connected!");
 
         while (true) {
-            // 1. Bulletproof Header Read (4 bytes)
-            uint32_t num_floats = 0;
+            // 1. Read 8-byte Dual Header
+            struct { uint32_t num_tris; uint32_t num_lines; } header;
             size_t header_received = 0;
-            char* header_ptr = (char*)&num_floats;
-            while(header_received < sizeof(num_floats)) {
-                int r = recv(new_socket, header_ptr + header_received, sizeof(num_floats) - header_received, 0);
+            while(header_received < sizeof(header)) {
+                int r = recv(new_socket, ((char*)&header) + header_received, sizeof(header) - header_received, 0);
                 if (r <= 0) break;
                 header_received += r;
             }
-            if (header_received < sizeof(num_floats)) break; // Connection dropped
+            if (header_received < sizeof(header) || header.num_tris > 5000000 || header.num_lines > 5000000) break;
 
-            // Sanity check to prevent out-of-memory crashes
-            if (num_floats == 0 || num_floats > 5000000) break;
-
-            // 2. Bulletproof Payload Read
-            std::vector<float> temp_buffer(num_floats);
-            size_t total_bytes = num_floats * sizeof(float);
+            // 2. Read Triangles
+            std::vector<float> temp_tris(header.num_tris);
             size_t received = 0;
-            char* ptr = (char*)temp_buffer.data();
-
-            while (received < total_bytes) {
-                int r = recv(new_socket, ptr + received, total_bytes - received, 0);
+            while (received < header.num_tris * sizeof(float)) {
+                int r = recv(new_socket, ((char*)temp_tris.data()) + received, (header.num_tris * sizeof(float)) - received, 0);
                 if (r <= 0) break;
                 received += r;
             }
 
-            // 3. Thread-Safe Memory Swap & Logging
-            if (received == total_bytes) {
-                {
-                    std::lock_guard<std::mutex> lock(g_wireframeMutex);
-                    g_wireframeVertices = std::move(temp_buffer);
-                }
-                // THIS IS THE MOST IMPORTANT LINE: Prove it arrived!
-                ALOGV("CMPUT428: MESH UPDATED! Received %u floats (%u lines)", num_floats, num_floats / 6);
-            } else {
-                break;
+            // 3. Read Lines
+            std::vector<float> temp_lines(header.num_lines);
+            received = 0;
+            while (received < header.num_lines * sizeof(float)) {
+                int r = recv(new_socket, ((char*)temp_lines.data()) + received, (header.num_lines * sizeof(float)) - received, 0);
+                if (r <= 0) break;
+                received += r;
+            }
+
+            // Swap to global memory safely
+            {
+                std::lock_guard<std::mutex> lock(g_wireframeMutex);
+                g_triVertices = std::move(temp_tris);
+                g_wireframeVertices = std::move(temp_lines);
             }
         }
         close(new_socket);

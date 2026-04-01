@@ -41,38 +41,28 @@ class MeshStreamerNode(Node):
         if not msg.points:
             return
 
-        # --- THE FIX: Coordinate Frame Swap ---
         def xr_convert(p):
-            # Points are now natively born in the correct OpenXR frame
             return p.x, p.y, p.z
 
-        lines = []
+        tri_floats = []
+        line_floats = []
         for i in range(0, len(msg.points), 3):
-            # Grab the 3 points of the triangle
-            p1 = msg.points[i]
-            p2 = msg.points[i+1]
-            p3 = msg.points[i+2]
-            
-            # Convert them to OpenXR Space
-            c1 = xr_convert(p1)
-            c2 = xr_convert(p2)
-            c3 = xr_convert(p3)
+            c1 = xr_convert(msg.points[i])
+            c2 = xr_convert(msg.points[i+1])
+            c3 = xr_convert(msg.points[i+2])
 
-            # Line 1: p1 -> p2
-            lines.extend([c1[0], c1[1], c1[2], c2[0], c2[1], c2[2]])
-            # Line 2: p2 -> p3
-            lines.extend([c2[0], c2[1], c2[2], c3[0], c3[1], c3[2]])
-            # Line 3: p3 -> p1
-            lines.extend([c3[0], c3[1], c3[2], c1[0], c1[1], c1[2]])
+            # 1. Solid Triangles (The Invisible Depth Shield)
+            tri_floats.extend([*c1, *c2, *c3])
+            # 2. Lines (The Visible Hologram)
+            line_floats.extend([*c1, *c2, *c2, *c3, *c3, *c1])
 
-        # Pack into binary: [Header: Num_Floats] + [Float Array]
-        num_floats = len(lines)
-        header = struct.pack('<I', num_floats) 
-        payload = struct.pack(f'<{num_floats}f', *lines) 
+        # Header: [UInt32 Num_Tri_Floats] [UInt32 Num_Line_Floats]
+        header = struct.pack('<II', len(tri_floats), len(line_floats)) 
+        payload = struct.pack(f'<{len(tri_floats)}f', *tri_floats) + struct.pack(f'<{len(line_floats)}f', *line_floats)
         
         try:
             self.sock.sendall(header + payload)
-            self.get_logger().info(f"Sent wireframe overlay: {num_floats//6} lines.")
+            self.get_logger().info(f"Sent wireframe overlay: {len(line_floats)//6} lines, {len(tri_floats)//3} triangles.")
         except Exception as e:
             self.get_logger().error("Connection lost. Reconnecting...")
             self.connected = False
