@@ -7,17 +7,17 @@ import os
 # ==============================================================================
 
 MAX_POINTS = 2000
-MIN_AGE_CONFIDENCE = 20
+MIN_AGE_CONFIDENCE = 8
 MAX_PROBATION_FRAMES = 100       # How many frames a point has to reach maturity
 REPLENISH_THRESHOLD_RATIO = 0.8
 GFTT_QUALITY_LEVEL = 0.10
-GFTT_MIN_DISTANCE = 40
-MIN_PATCH_VARIANCE = 70.0
+GFTT_MIN_DISTANCE = 15
+MIN_PATCH_VARIANCE = 30.0
 
 KLT_WIN_SIZE = (31, 31)
 KLT_MAX_LEVEL = 4
 
-ZNCC_THRESHOLD_STEREO = 0.60
+ZNCC_THRESHOLD_STEREO = 0.50
 ZNCC_THRESHOLD_TEMPORAL = 0.40
 PATCH_SIZE = 15
 
@@ -27,7 +27,8 @@ MIN_DISPARITY = 1.0
 MIN_DEPTH_PROJ = 0.1
 
 VOXEL_SIZE = 0.10                
-MIN_SVD_BASELINE = 0.05          
+MIN_SVD_BASELINE = 0.05
+SVD_CONDITION_THRESHOLD = 15.0   # Reject degenerate multi-view geometry
 
 # --- THE NEW VETO PARAMETERS ---
 EDGE_MARGIN = 40                 # Stay away from cv2.remap black borders!
@@ -246,9 +247,20 @@ class StereoPointTracker:
                         if self._is_history_unique_enough(self.global_map[pid]['history']):
                             optimized_pt = self._triangulate_n_views(self.global_map[pid]['history'])
                             if optimized_pt is not None:
-                                smoothed_pt = optimized_pt
-                        
-                        self.global_map[pid]['history'].clear() 
+                                
+                                # --- THE CHEIRALITY CHECK ---
+                                # Project the SVD point into the local OpenXR camera frame
+                                local_chk = R_cam @ optimized_pt + t_cam
+                                
+                                # In OpenXR, the camera looks down the NEGATIVE Z axis.
+                                # If Z > 0, the math just threw the point behind your head!
+                                if local_chk[2] < 0: 
+                                    smoothed_pt = optimized_pt # Safe! Apply the optimization.
+                                else:
+                                    pass # Reject SVD, fall back to the safe stereo `smoothed_pt`
+                                # ----------------------------
+                                
+                        self.global_map[pid]['history'].clear()
 
                     self.points_3d[i] = smoothed_pt
                     self.global_map[pid]['pt_3d'] = smoothed_pt
@@ -491,7 +503,20 @@ class StereoPointTracker:
             A[i*2]     = u * P[2, :] - P[0, :]
             A[i*2 + 1] = v * P[2, :] - P[1, :]
         
-        _, _, Vt = np.linalg.svd(A)
+        # Capture U, S, and Vt
+        U, S, Vt = np.linalg.svd(A)
+        
+        # --- THE CONDITIONING VETO ---
+        # S = [s0, s1, s2, s3]
+        if S[3] < 1e-6:
+            cond_ratio = float('inf') # Perfect mathematical intersection
+        else:
+            cond_ratio = S[2] / S[3]
+
+        if cond_ratio < SVD_CONDITION_THRESHOLD:
+            return None # The geometry is ambiguous! Reject the optimization.
+        # -----------------------------
+
         X = Vt[-1]
         if abs(X[3]) < 1e-6: return None 
         X = X / X[3]
