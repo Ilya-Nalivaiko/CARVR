@@ -16,6 +16,7 @@ public:
             std::bind(&CarvingNode::keyframe_callback, this, std::placeholders::_1));
 
         pub_mesh_ = this->create_publisher<visualization_msgs::msg::Marker>("quest3carv/carved_mesh", 10);
+        pub_points_ = this->create_publisher<visualization_msgs::msg::Marker>("quest3carv/carved_points", 10);
 
         RCLCPP_INFO(this->get_logger(), "Freespace Carving Node Initialized! Throttled to map every %d keyframes.", process_every_n_frames_);
     }
@@ -23,7 +24,7 @@ public:
 private:
     void keyframe_callback(const quest3carv_interfaces::msg::KeyframeData::SharedPtr msg) {
         keyframe_count_++;
-        RCLCPP_INFO(this->get_logger(), "--- INGESTING KEYFRAME %d (%zu points) ---", keyframe_count_, msg->points.size());
+        //RCLCPP_INFO(this->get_logger(), "--- INGESTING KEYFRAME %d (%zu points) ---", keyframe_count_, msg->points.size());
 
         try {
             // 1. Extract Camera Optic Center (O)
@@ -125,8 +126,9 @@ private:
             std::string obj_path = "/workspace/carved_room.obj"; 
             carver_.writeObj(obj_path, points_copy, tris);
 
-            // 6. Publish to RViz
+            // 6. Publish
             publish_mesh(tris);
+            publish_points();
 
         } catch (const std::exception& e) {
             RCLCPP_ERROR(this->get_logger(), "Runtime Exception: %s", e.what());
@@ -173,8 +175,44 @@ private:
         pub_mesh_->publish(marker);
     }
 
+    void publish_points() {
+        visualization_msgs::msg::Marker marker;
+        marker.header.frame_id = "world";
+        marker.header.stamp = this->get_clock()->now();
+        marker.ns = "carved_points";
+        marker.id = 1; // Different ID so it doesn't overwrite the mesh
+        
+        // Use spheres so they have actual 3D volume in RViz
+        marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+        marker.action = visualization_msgs::msg::Marker::ADD;
+        
+        // Size: 2cm diameter
+        marker.scale.x = 0.02; 
+        marker.scale.y = 0.02; 
+        marker.scale.z = 0.02;
+        
+        // Color: Bright, fully opaque Yellow for high contrast against the cyan mesh
+        marker.color.r = 1.0; 
+        marker.color.g = 1.0; 
+        marker.color.b = 0.0;
+        marker.color.a = 1.0; 
+
+        // Extract raw points from the carver's state
+        const auto& points = carver_.getPoints();
+        for (const auto& pt : points) {
+            geometry_msgs::msg::Point p;
+            p.x = pt.x();
+            p.y = pt.y();
+            p.z = pt.z();
+            marker.points.push_back(p);
+        }
+
+        pub_points_->publish(marker);
+    }
+
     rclcpp::Subscription<quest3carv_interfaces::msg::KeyframeData>::SharedPtr sub_kf_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mesh_;
+    rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_points_;
     
     dlovi::FreespaceDelaunayAlgorithm carver_;
     std::unordered_map<uint32_t, int> global_id_to_local_idx_; 

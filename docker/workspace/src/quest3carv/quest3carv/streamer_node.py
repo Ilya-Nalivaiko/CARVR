@@ -16,61 +16,88 @@ class MeshStreamerNode(Node):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connected = False
         
-        self.sub = self.create_subscription(
-            Marker,
-            'quest3carv/carved_mesh',
-            self.mesh_callback,
-            10
-        )
+        # State memory for the async callbacks
+        self.latest_tri_floats = []
+        self.latest_line_floats = []
+        self.latest_point_floats = []
+        
+        self.sub_mesh = self.create_subscription(Marker, 'quest3carv/carved_mesh', self.mesh_callback, 10)
+        self.sub_points = self.create_subscription(Marker, 'quest3carv/carved_points', self.points_callback, 10)
+        
         self.get_logger().info(f"Waiting to connect to Quest on {self.quest_ip}:{self.tcp_port}...")
 
     def connect_to_quest(self):
         try:
             self.sock.connect((self.quest_ip, self.tcp_port))
-            self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) # Disable Nagle's algorithm for low latency
             self.connected = True
-            self.get_logger().info("CONNECTED TO QUEST 3 TCP SERVER!")
-        except Exception as e:
-            pass # Keep trying silently
+            self.get_logger().info("Connected to Quest!")
+        except:
+            pass
+
+    def points_callback(self, msg):
+        pts = []
+        for p in msg.points:
+            pts.extend([p.x, p.y, p.z])
+        self.latest_point_floats = pts
+        
+        # Trigger an immediate send so points show up even before the mesh is ready
+        self.send_payload()
 
     def mesh_callback(self, msg):
+        tri_floats = []
+        line_floats = []
+        
+        # Only process if there are actually triangles to draw
+        if msg.points:
+            for i in range(0, len(msg.points), 3):
+                c1 = (msg.points[i].x, msg.points[i].y, msg.points[i].z)
+                c2 = (msg.points[i+1].x, msg.points[i+1].y, msg.points[i+1].z)
+                c3 = (msg.points[i+2].x, msg.points[i+2].y, msg.points[i+2].z)
+
+                tri_floats.extend([*c1, *c2, *c3])
+                line_floats.extend([*c1, *c2, *c2, *c3, *c3, *c1])
+
+        self.latest_tri_floats = tri_floats
+        self.latest_line_floats = line_floats
+        
+        # Trigger an updated send
+        self.send_payload()
+
+    def send_payload(self):
         if not self.connected:
             self.connect_to_quest()
             return
-            
-        if not msg.points:
-            return
 
-        def xr_convert(p):
-            return p.x, p.y, p.z
+        tris = self.latest_tri_floats
+        lines = self.latest_line_floats
+        pts = self.latest_point_floats
 
-        tri_floats = []
-        line_floats = []
-        for i in range(0, len(msg.points), 3):
-            c1 = xr_convert(msg.points[i])
-            c2 = xr_convert(msg.points[i+1])
-            c3 = xr_convert(msg.points[i+2])
+        # If both are entirely empty, don't spam the network
+        if not tris and not pts:
+            return 
 
-            # 1. Solid Triangles (The Invisible Depth Shield)
-            tri_floats.extend([*c1, *c2, *c3])
-            # 2. Lines (The Visible Hologram)
-            line_floats.extend([*c1, *c2, *c2, *c3, *c3, *c1])
-
-        # Header: [UInt32 Num_Tri_Floats] [UInt32 Num_Line_Floats]
-        header = struct.pack('<II', len(tri_floats), len(line_floats)) 
-        payload = struct.pack(f'<{len(tri_floats)}f', *tri_floats) + struct.pack(f'<{len(line_floats)}f', *line_floats)
+        # 12-Byte Header
+        header = struct.pack('<III', len(tris), len(lines), len(pts)) 
+        
+        # Binary Payload
+        payload = (struct.pack(f'<{len(tris)}f', *tris) + 
+                   struct.pack(f'<{len(lines)}f', *lines) +
+                   struct.pack(f'<{len(pts)}f', *pts))
         
         try:
             self.sock.sendall(header + payload)
-            self.get_logger().info(f"Sent wireframe overlay: {len(line_floats)//6} lines, {len(tri_floats)//3} triangles.")
+            self.get_logger().info(f"Streamed: {len(tris)//9} tris, {len(pts)//3} points.")
         except Exception as e:
-            self.get_logger().error("Connection lost. Reconnecting...")
+            self.get_logger().error("Connection to Quest lost. Reconnecting...")
             self.connected = False
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 def main():
     rclpy.init()
-    rclpy.spin(MeshStreamerNode())
+    node = MeshStreamerNode()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

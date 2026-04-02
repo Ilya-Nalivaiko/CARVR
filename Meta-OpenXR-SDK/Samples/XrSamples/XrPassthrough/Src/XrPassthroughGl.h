@@ -124,11 +124,13 @@ struct Scene {
     TrackedController trackedController[4]; // left aim, left grip, right aim, right grip
     Program OccluderProgram;
     Program CarvLineProgram;
+    Program PointProgram;
     
     GLuint TriVAO = 0;
     GLuint TriVBO = 0;
     GLuint WireframeVAO = 0;
     GLuint WireframeVBO = 0;
+    GLuint PointVAO = 0, PointVBO = 0;
 };
 
 struct AppRenderer {

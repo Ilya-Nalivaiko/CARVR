@@ -22,7 +22,7 @@ class SpatialReconstructionNode(Node):
         # Configuration for Keyframe Debugging
         self.save_kf_images = False
         self.show_kf_images = True
-        self.save_ply_clouds = True
+        self.save_ply_clouds = False
         self.output_dir = "/workspace/debug/clouds"
         if self.save_ply_clouds and not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
@@ -244,7 +244,11 @@ class SpatialReconstructionNode(Node):
             # Extract high-confidence points visible from this keyframe
             points_3d, points_2d, ages, ids_3d = self.tracker.get_confident_points()
 
-            self.get_logger().info(f"New viewpoint added with {len(points_3d)} points")
+            n_pts = len(points_3d)
+
+            if (n_pts < 1):
+                #self.get_logger().info(f"No points in this keyframe")
+                return
             
             # Call the updated visualization functions
             self.visualize_keyframe(img_l, points_3d, points_2d, ages)

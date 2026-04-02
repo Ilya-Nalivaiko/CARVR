@@ -61,6 +61,7 @@ Copyright	:	Copyright (c) Facebook Technologies, LLC and its affiliates. All rig
 #include <vector>
 extern std::vector<float> g_triVertices;
 extern std::vector<float> g_wireframeVertices;
+extern std::vector<float> g_pointVertices; // <--- NEW
 extern std::mutex g_wireframeMutex;
 // --- SHADER 1: The Invisible Shield (Exact Depth) ---
 static const char OCCLUDER_VERTEX_SHADER[] =
@@ -106,6 +107,27 @@ static const char CARV_LINE_FRAGMENT_SHADER[] =
     "uniform vec4 LineColor;\n"
     "out lowp vec4 outColor;\n"
     "void main() { outColor = LineColor; }\n";
+static const char POINT_VERTEX_SHADER[] =
+    "#define NUM_VIEWS 2\n"
+    "#define VIEW_ID gl_ViewID_OVR\n"
+    "#extension GL_OVR_multiview2 : require\n"
+    "layout(num_views=NUM_VIEWS) in;\n"
+    "in vec3 vertexPosition;\n"
+    "uniform mat4 ModelMatrix;\n"
+    "uniform SceneMatrices\n"
+    "{\n"
+    "   uniform mat4 ViewMatrix[NUM_VIEWS];\n"
+    "   uniform mat4 ProjectionMatrix[NUM_VIEWS];\n"
+    "} sm;\n"
+    "void main()\n"
+    "{\n"
+    "   gl_Position = sm.ProjectionMatrix[VIEW_ID] * ( sm.ViewMatrix[VIEW_ID] * ( ModelMatrix * vec4( vertexPosition, 1.0 ) ) );\n"
+    "   gl_PointSize = 12.0;\n" // Render as fat, visible dots!
+    "}\n";
+
+static const char POINT_FRAGMENT_SHADER[] =
+    "out lowp vec4 outColor;\n"
+    "void main() { outColor = vec4(1.0, 1.0, 0.0, 1.0); }\n"; // Bright Opaque Yellow
 
 using namespace OVR;
 
@@ -1001,11 +1023,16 @@ void Scene::Create() {
     if (!CarvLineProgram.Create(CARV_LINE_VERTEX_SHADER, CARV_LINE_FRAGMENT_SHADER)) {
         ALOGE("Failed to compile carv lines");
     }
+    if (!PointProgram.Create(POINT_VERTEX_SHADER, POINT_FRAGMENT_SHADER)) {
+        ALOGE("Failed to compile point program");
+    }
 
     GL(glGenVertexArrays(1, &TriVAO));
     GL(glGenBuffers(1, &TriVBO));
     GL(glGenVertexArrays(1, &WireframeVAO));
     GL(glGenBuffers(1, &WireframeVBO));
+    GL(glGenVertexArrays(1, &PointVAO));
+    GL(glGenBuffers(1, &PointVBO));
 
     GL(glBindVertexArray(WireframeVAO));
     GL(glBindBuffer(GL_ARRAY_BUFFER, WireframeVBO));
@@ -1131,13 +1158,16 @@ void AppRenderer::RenderFrame(AppRenderer::FrameIn frameIn) {
     {
         std::vector<float> local_tris;
         std::vector<float> local_lines;
+        std::vector<float> local_points;
+
         {
             std::lock_guard<std::mutex> lock(g_wireframeMutex);
             local_tris = g_triVertices; 
             local_lines = g_wireframeVertices;
+            local_points = g_pointVertices; 
         }
 
-        if (!local_lines.empty() && !local_tris.empty()) {
+        if (!local_lines.empty() || !local_tris.empty() || !local_points.empty()) { 
             
             GL(glEnable(GL_DEPTH_TEST));
             GL(glDepthMask(GL_TRUE));
@@ -1145,86 +1175,109 @@ void AppRenderer::RenderFrame(AppRenderer::FrameIn frameIn) {
             // ==========================================
             // PASS 1: INVISIBLE SOLID DEPTH SHIELD
             // ==========================================
-            GL(glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE));
-            
-            GL(glUseProgram(scene.OccluderProgram.Program));
-            GL(glBindBufferBase(GL_UNIFORM_BUFFER, scene.OccluderProgram.UniformBinding[Uniform::Index::SCENE_MATRICES], scene.SceneMatrices));
-            if (scene.OccluderProgram.UniformLocation[Uniform::Index::VIEW_ID] >= 0) {
-                GL(glUniform1i(scene.OccluderProgram.UniformLocation[Uniform::Index::VIEW_ID], 0));
-            }
-            if (scene.OccluderProgram.UniformLocation[Uniform::Index::MODEL_MATRIX] >= 0) {
-                const Matrix4f identity = Matrix4f::Identity();
-                GL(glUniformMatrix4fv(scene.OccluderProgram.UniformLocation[Uniform::Index::MODEL_MATRIX], 1, GL_TRUE, &identity.M[0][0]));
-            }
+            if (!local_tris.empty()) {
+                GL(glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE));
+                
+                GL(glUseProgram(scene.OccluderProgram.Program));
+                GL(glBindBufferBase(GL_UNIFORM_BUFFER, scene.OccluderProgram.UniformBinding[Uniform::Index::SCENE_MATRICES], scene.SceneMatrices));
+                if (scene.OccluderProgram.UniformLocation[Uniform::Index::VIEW_ID] >= 0) {
+                    GL(glUniform1i(scene.OccluderProgram.UniformLocation[Uniform::Index::VIEW_ID], 0));
+                }
+                if (scene.OccluderProgram.UniformLocation[Uniform::Index::MODEL_MATRIX] >= 0) {
+                    const Matrix4f identity = Matrix4f::Identity();
+                    GL(glUniformMatrix4fv(scene.OccluderProgram.UniformLocation[Uniform::Index::MODEL_MATRIX], 1, GL_TRUE, &identity.M[0][0]));
+                }
 
-            GL(glBindVertexArray(scene.TriVAO));
-            GL(glBindBuffer(GL_ARRAY_BUFFER, scene.TriVBO));
-            GL(glBufferData(GL_ARRAY_BUFFER, local_tris.size() * sizeof(float), local_tris.data(), GL_DYNAMIC_DRAW));
-            GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
-            GL(glVertexAttribPointer(VERTEX_ATTRIBUTE_LOCATION_POSITION, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (const GLvoid*)0));
+                GL(glBindVertexArray(scene.TriVAO));
+                GL(glBindBuffer(GL_ARRAY_BUFFER, scene.TriVBO));
+                GL(glBufferData(GL_ARRAY_BUFFER, local_tris.size() * sizeof(float), local_tris.data(), GL_DYNAMIC_DRAW));
+                GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+                GL(glVertexAttribPointer(VERTEX_ATTRIBUTE_LOCATION_POSITION, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (const GLvoid*)0));
 
-            // Tiny hardware offset to stop Z-fighting with the front lines
-            GL(glEnable(GL_POLYGON_OFFSET_FILL));
-            GL(glPolygonOffset(1.0f, 1.0f)); 
-            GL(glDrawArrays(GL_TRIANGLES, 0, local_tris.size() / 3));
-            GL(glDisable(GL_POLYGON_OFFSET_FILL));
-
-
-            // ==========================================
-            // PREPARE FOR LINE DRAWING
-            // ==========================================
-            GL(glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)); 
-            GL(glEnable(GL_BLEND)); 
-            GL(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
-            GL(glLineWidth(1.0f)); // Thin lines!
-
-            GL(glUseProgram(scene.CarvLineProgram.Program));
-            GL(glBindBufferBase(GL_UNIFORM_BUFFER, scene.CarvLineProgram.UniformBinding[Uniform::Index::SCENE_MATRICES], scene.SceneMatrices));
-            if (scene.CarvLineProgram.UniformLocation[Uniform::Index::VIEW_ID] >= 0) {
-                GL(glUniform1i(scene.CarvLineProgram.UniformLocation[Uniform::Index::VIEW_ID], 0));
-            }
-            if (scene.CarvLineProgram.UniformLocation[Uniform::Index::MODEL_MATRIX] >= 0) {
-                const Matrix4f identity = Matrix4f::Identity();
-                GL(glUniformMatrix4fv(scene.CarvLineProgram.UniformLocation[Uniform::Index::MODEL_MATRIX], 1, GL_TRUE, &identity.M[0][0]));
+                GL(glEnable(GL_POLYGON_OFFSET_FILL));
+                GL(glPolygonOffset(1.0f, 1.0f)); 
+                GL(glDrawArrays(GL_TRIANGLES, 0, local_tris.size() / 3));
+                GL(glDisable(GL_POLYGON_OFFSET_FILL));
+                GL(glBindVertexArray(0));
             }
 
-            GL(glBindVertexArray(scene.WireframeVAO));
-            GL(glBindBuffer(GL_ARRAY_BUFFER, scene.WireframeVBO));
-            GL(glBufferData(GL_ARRAY_BUFFER, local_lines.size() * sizeof(float), local_lines.data(), GL_DYNAMIC_DRAW));
-            GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
-            GL(glVertexAttribPointer(VERTEX_ATTRIBUTE_LOCATION_POSITION, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (const GLvoid*)0));
+            // ==========================================
+            // PASS 2 & 3: X-RAY AND FRONT LINES
+            // ==========================================
+            if (!local_lines.empty()) {
+                GL(glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)); 
+                GL(glEnable(GL_BLEND)); 
+                GL(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+                GL(glLineWidth(2.0f)); // Slightly thicker than 1.0 just to be safe
 
-            GLuint colorLoc = glGetUniformLocation(scene.CarvLineProgram.Program, "LineColor");
+                GL(glUseProgram(scene.CarvLineProgram.Program));
+                GL(glBindBufferBase(GL_UNIFORM_BUFFER, scene.CarvLineProgram.UniformBinding[Uniform::Index::SCENE_MATRICES], scene.SceneMatrices));
+                if (scene.CarvLineProgram.UniformLocation[Uniform::Index::VIEW_ID] >= 0) {
+                    GL(glUniform1i(scene.CarvLineProgram.UniformLocation[Uniform::Index::VIEW_ID], 0));
+                }
+                if (scene.CarvLineProgram.UniformLocation[Uniform::Index::MODEL_MATRIX] >= 0) {
+                    const Matrix4f identity = Matrix4f::Identity();
+                    GL(glUniformMatrix4fv(scene.CarvLineProgram.UniformLocation[Uniform::Index::MODEL_MATRIX], 1, GL_TRUE, &identity.M[0][0]));
+                }
+
+                GL(glBindVertexArray(scene.WireframeVAO));
+                GL(glBindBuffer(GL_ARRAY_BUFFER, scene.WireframeVBO));
+                GL(glBufferData(GL_ARRAY_BUFFER, local_lines.size() * sizeof(float), local_lines.data(), GL_DYNAMIC_DRAW));
+                GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+                GL(glVertexAttribPointer(VERTEX_ATTRIBUTE_LOCATION_POSITION, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (const GLvoid*)0));
+
+                GLuint colorLoc = glGetUniformLocation(scene.CarvLineProgram.Program, "LineColor");
+
+                // PASS 2: OCCLUDED "X-RAY" LINES (DIM & TRANSPARENT)
+                GL(glDepthFunc(GL_GREATER)); 
+                GL(glDepthMask(GL_FALSE)); 
+                GL(glUniform4f(colorLoc, 0.0f, 0.4f, 0.0f, 0.20f)); 
+                GL(glDrawArrays(GL_LINES, 0, local_lines.size() / 3));
+
+                // PASS 3: FRONT LINES (BRIGHT & OPAQUE)
+                GL(glDepthFunc(GL_LEQUAL)); 
+                GL(glDepthMask(GL_TRUE));
+                GL(glUniform4f(colorLoc, 0.0f, 1.0f, 0.0f, 1.0f)); 
+                GL(glDrawArrays(GL_LINES, 0, local_lines.size() / 3));
+
+                GL(glBindVertexArray(0));
+                GL(glDisable(GL_BLEND));
+            }
 
             // ==========================================
-            // PASS 2: OCCLUDED "X-RAY" LINES (DIM & TRANSPARENT)
+            // PASS 4: RAW TRACKER POINTS (YELLOW DOTS)
             // ==========================================
-            // GL_GREATER forces it to ONLY draw lines hidden behind the triangles
-            GL(glDepthFunc(GL_GREATER)); 
-            GL(glDepthMask(GL_FALSE)); 
-            
-            // RGBA: Dim Green, 20% Opacity
-            GL(glUniform4f(colorLoc, 0.0f, 0.4f, 0.0f, 0.20f)); 
-            GL(glDrawArrays(GL_LINES, 0, local_lines.size() / 3));
+            if (!local_points.empty()) {
+                // Ensure color writing is back on in case Triangles disabled it but Lines were empty
+                GL(glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE)); 
+                GL(glDepthFunc(GL_LEQUAL)); 
+                GL(glDepthMask(GL_TRUE));
+
+                GL(glUseProgram(scene.PointProgram.Program));
+                GL(glBindBufferBase(GL_UNIFORM_BUFFER, scene.PointProgram.UniformBinding[Uniform::Index::SCENE_MATRICES], scene.SceneMatrices));
+                if (scene.PointProgram.UniformLocation[Uniform::Index::VIEW_ID] >= 0) {
+                    GL(glUniform1i(scene.PointProgram.UniformLocation[Uniform::Index::VIEW_ID], 0));
+                }
+                if (scene.PointProgram.UniformLocation[Uniform::Index::MODEL_MATRIX] >= 0) {
+                    const Matrix4f identity = Matrix4f::Identity();
+                    GL(glUniformMatrix4fv(scene.PointProgram.UniformLocation[Uniform::Index::MODEL_MATRIX], 1, GL_TRUE, &identity.M[0][0]));
+                }
+
+                GL(glBindVertexArray(scene.PointVAO));
+                GL(glBindBuffer(GL_ARRAY_BUFFER, scene.PointVBO));
+                GL(glBufferData(GL_ARRAY_BUFFER, local_points.size() * sizeof(float), local_points.data(), GL_DYNAMIC_DRAW));
+                GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+                GL(glVertexAttribPointer(VERTEX_ATTRIBUTE_LOCATION_POSITION, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (const GLvoid*)0));
+
+                GL(glDrawArrays(GL_POINTS, 0, local_points.size() / 3));
+                GL(glBindVertexArray(0));
+            }
 
             // ==========================================
-            // PASS 3: FRONT LINES (BRIGHT & OPAQUE)
+            // CLEANUP STATE FOR NEXT RENDERS
             // ==========================================
-            // GL_LEQUAL forces it to ONLY draw lines in front of/on the triangles
-            GL(glDepthFunc(GL_LEQUAL)); 
-            GL(glDepthMask(GL_TRUE));
-            
-            // RGBA: Bright Neon Green, 100% Opacity
-            GL(glUniform4f(colorLoc, 0.0f, 1.0f, 0.0f, 1.0f)); 
-            GL(glDrawArrays(GL_LINES, 0, local_lines.size() / 3));
-
-            // ==========================================
-            // CLEANUP STATE
-            // ==========================================
-            GL(glBindVertexArray(0));
             GL(glUseProgram(0));
-            GL(glDisable(GL_BLEND));
-            GL(glDepthFunc(GL_LESS)); // Restore standard depth function
+            GL(glDepthFunc(GL_LEQUAL)); // OpenXR default
         }
     }
 

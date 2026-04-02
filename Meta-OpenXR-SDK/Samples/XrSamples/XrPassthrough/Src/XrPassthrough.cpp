@@ -125,6 +125,7 @@ uint32_t META_CAMERA_SOURCE_TAG = 0x80000000;
 #include <mutex>
 std::vector<float> g_triVertices; 
 std::vector<float> g_wireframeVertices;
+std::vector<float> g_pointVertices;
 std::mutex g_wireframeMutex;
 std::thread meshReceiverThread;
 
@@ -901,15 +902,15 @@ void MeshReceiverLoop() {
         ALOGV("CMPUT428: Python Mesh Streamer Connected!");
 
         while (true) {
-            // 1. Read 8-byte Dual Header
-            struct { uint32_t num_tris; uint32_t num_lines; } header;
+            // 1. Read 12-byte Triple Header
+            struct { uint32_t num_tris; uint32_t num_lines; uint32_t num_points; } header;
             size_t header_received = 0;
             while(header_received < sizeof(header)) {
                 int r = recv(new_socket, ((char*)&header) + header_received, sizeof(header) - header_received, 0);
                 if (r <= 0) break;
                 header_received += r;
             }
-            if (header_received < sizeof(header) || header.num_tris > 5000000 || header.num_lines > 5000000) break;
+            if (header_received < sizeof(header) || header.num_tris > 5000000 || header.num_lines > 5000000 || header.num_points > 5000000) break;
 
             // 2. Read Triangles
             std::vector<float> temp_tris(header.num_tris);
@@ -929,11 +930,20 @@ void MeshReceiverLoop() {
                 received += r;
             }
 
+            // 4. Read Points (NEW)
+            std::vector<float> temp_points(header.num_points);
+            received = 0;
+            while (received < header.num_points * sizeof(float)) {
+                int r = recv(new_socket, ((char*)temp_points.data()) + received, (header.num_points * sizeof(float)) - received, 0);
+                if (r <= 0) break; received += r;
+            }
+
             // Swap to global memory safely
             {
                 std::lock_guard<std::mutex> lock(g_wireframeMutex);
                 g_triVertices = std::move(temp_tris);
                 g_wireframeVertices = std::move(temp_lines);
+                g_pointVertices = std::move(temp_points);
             }
         }
         close(new_socket);
