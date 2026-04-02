@@ -26,10 +26,13 @@ MAX_V_DRIFT = 1.5
 MIN_DISPARITY = 1.0
 MIN_DEPTH_PROJ = 0.1
 
-VOXEL_SIZE = 0.10                # 10cm grid for spatial hashing
-MIN_SVD_BASELINE = 0.05          # Require at least 5cm of camera translation to run SVD
+VOXEL_SIZE = 0.10                
+MIN_SVD_BASELINE = 0.05          
 
-# Debugging
+# --- THE NEW VETO PARAMETERS ---
+EDGE_MARGIN = 40                 # Stay away from cv2.remap black borders!
+MAX_DEPTH_ERROR = 0.20           # 20cm tolerance for occlusion/ghost detection
+
 DRAW_DEBUG = True
 DEBUG_DIR = "/workspace/debug/tracker_frames"
 if DRAW_DEBUG and not os.path.exists(DEBUG_DIR):
@@ -161,7 +164,7 @@ class StereoPointTracker:
 
         # --- FIX: Bounds Checking Before Sub-Pixel Refinement ---
         H, W = gray_r.shape
-        margin = self.half_p + 1 # Safe margin for patch extraction and sub-pix window
+        margin = EDGE_MARGIN # Safe margin from cv2.remap black void
         
         # Create a mask of points that are safely inside the image
         bounds_mask = (res_r[:, 0] >= margin) & (res_r[:, 0] < W - margin) & \
@@ -181,6 +184,10 @@ class StereoPointTracker:
         # NOW it is safe to refine right-eye to sub-pixel accuracy
         criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
         res_r = cv2.cornerSubPix(gray_r, res_r.astype(np.float32), (5, 5), (-1, -1), criteria)
+
+        # Pre-calculate inverse pose for occlusion check
+        tw2c = np.linalg.inv(current_pose)
+        R_cam, t_cam = tw2c[:3, :3], tw2c[:3, 3]
 
         stereo_mask = np.zeros(len(self.points_2d_l), dtype=bool)
         for i in range(len(self.points_2d_l)):
@@ -202,14 +209,29 @@ class StereoPointTracker:
                     stereo_mask[i] = False
                     continue
 
-            # Epipolar Drift Veto (stat_r[i] check removed because we already filtered them out!)
+            # Epipolar Drift Veto
             if v_drift < MAX_V_DRIFT and (u_l - u_r) > MIN_DISPARITY:
+                
+                # --- 1. Measure CURRENT physical surface depth ---
+                local_pt_measured = self._triangulate(u_l, u_r, v)
+                z_measured = -local_pt_measured[2]
+                
+                # --- 2. THE OCCLUSION / GHOST VETO ---
+                p_cam_expected = R_cam @ self.points_3d[i] + t_cam
+                z_expected = -p_cam_expected[2]
+                
+                # If point is >5 frames old, we trust its depth. If the current surface 
+                # is suddenly 20cm closer (occlusion) or further (ghost), KILL IT!
+                if self.ages[i] > 5 and abs(z_expected - z_measured) > MAX_DEPTH_ERROR:
+                    stereo_mask[i] = False
+                    continue
+                # ---------------------------------------------
+                
                 stereo_mask[i] = True
                 pid = self.point_ids[i]
                 
                 if self.ages[i] <= self.min_age_confidence: 
-                    local_pt = self._triangulate(u_l, u_r, v)
-                    world_pt = current_pose[:3, :3] @ local_pt + current_pose[:3, 3]
+                    world_pt = current_pose[:3, :3] @ local_pt_measured + current_pose[:3, 3]
 
                     # Fast EMA Smoothing
                     alpha = 0.3
@@ -264,7 +286,8 @@ class StereoPointTracker:
 
         for i, pt in enumerate(current_pts):
             u, v = int(pt[0]), int(pt[1])
-            if (u < self.half_p or u >= w - self.half_p or v < self.half_p or v >= h - self.half_p):
+            # Use EDGE_MARGIN to avoid cv2.remap black void
+            if (u < EDGE_MARGIN or u >= w - EDGE_MARGIN or v < EDGE_MARGIN or v >= h - EDGE_MARGIN):
                 continue
             patch = current_gray[v-self.half_p : v+self.half_p+1, u-self.half_p : u+self.half_p+1]
             if patch.shape == (self.patch_size, self.patch_size):
@@ -276,13 +299,20 @@ class StereoPointTracker:
 
         curr_tensor = np.stack(patches).astype(np.float32)
         birth_tensor = self.birth_patches[valid_indices].astype(np.float32)
+        
+        # --- NEW: NOISE NORMALIZATION VETO ---
+        # If the patch drifted into a blurry smudge, ZNCC will mathematically hallucinate a match.
+        curr_vars = np.var(curr_tensor, axis=(1, 2))
+        
         mean_c = np.mean(curr_tensor, axis=(1, 2), keepdims=True)
         mean_b = np.mean(birth_tensor, axis=(1, 2), keepdims=True)
         c_zero, b_zero = curr_tensor - mean_c, birth_tensor - mean_b
         correlation = np.sum(c_zero * b_zero, axis=(1, 2))
         norm = np.sqrt(np.sum(c_zero**2, axis=(1, 2)) * np.sum(b_zero**2, axis=(1, 2)))
         zncc_scores = correlation / (norm + 1e-6)
-        full_mask[valid_indices] = zncc_scores > self.ZNCC_THRESHOLD_TEMPORAL
+        
+        # Only pass if ZNCC is good AND it hasn't turned into a featureless smudge
+        full_mask[valid_indices] = (zncc_scores > self.ZNCC_THRESHOLD_TEMPORAL) & (curr_vars > MIN_PATCH_VARIANCE * 0.5)
         return full_mask
 
     def _reproject(self, gray_l, current_pose, debug_out):
@@ -304,7 +334,7 @@ class StereoPointTracker:
             u = self.fx * (p_cam[:, 0] / -z_cam) + self.cx
             v = self.fy * (p_cam[:, 1] / -z_cam) + self.cy
 
-        bounds_mask = (u >= self.half_p) & (u < W - self.half_p) & (v >= self.half_p) & (v < H - self.half_p)
+        bounds_mask = (u >= EDGE_MARGIN) & (u < W - EDGE_MARGIN) & (v >= EDGE_MARGIN) & (v < H - EDGE_MARGIN)
         expected_mask = depth_mask & bounds_mask
 
         expected_indices = np.where(expected_mask)[0]
@@ -313,9 +343,10 @@ class StereoPointTracker:
         for idx in expected_indices:
             pid = lost_ids[idx]
             px_u, px_v = int(u[idx]), int(v[idx])
-            patch = gray_l[px_v-self.half_p : px_v+self.half_p+1, px_u-self.half_p : px_u+self.half_p+1]
+            # .copy() prevents memory leakage and cross-contamination!
+            patch = gray_l[px_v-self.half_p : px_v+self.half_p+1, px_u-self.half_p : px_u+self.half_p+1].copy()
 
-            if patch.shape == (self.patch_size, self.patch_size):
+            if patch.shape == (self.patch_size, self.patch_size) and np.var(patch) > MIN_PATCH_VARIANCE * 0.5:
                 birth_patch = self.global_map[pid]['patch']
                 mean_c, mean_b = np.mean(patch), np.mean(birth_patch)
                 c_zero = patch.astype(np.float32) - mean_c
@@ -352,7 +383,10 @@ class StereoPointTracker:
     def _replenish(self, gray_l, gray_r, debug_out, current_pose):
         occupied_voxels = set(self._get_voxel(data['pt_3d']) for data in self.global_map.values())
 
-        mask = np.ones_like(gray_l) * 255
+        # Mask out the black void borders generated by cv2.remap!
+        mask = np.zeros_like(gray_l)
+        mask[EDGE_MARGIN:-EDGE_MARGIN, EDGE_MARGIN:-EDGE_MARGIN] = 255
+        
         for pt in self.points_2d_l:
             cv2.circle(mask, (int(pt[0]), int(pt[1])), GFTT_MIN_DISTANCE, 0, -1)
 
@@ -377,7 +411,10 @@ class StereoPointTracker:
             u_l, v = new_corners[i]
             u_r = res_r[i][0]
             if stat_r[i] and (u_l - u_r) > MIN_DISPARITY:
-                patch = gray_l[int(v)-self.half_p : int(v)+self.half_p+1, int(u_l)-self.half_p : int(u_l)+self.half_p+1]
+                
+                # --- BUG FIX: .copy() IS MANDATORY ---
+                patch = gray_l[int(v)-self.half_p : int(v)+self.half_p+1, int(u_l)-self.half_p : int(u_l)+self.half_p+1].copy()
+                
                 if patch.shape == (self.patch_size, self.patch_size) and np.var(patch) >= MIN_PATCH_VARIANCE:
 
                     local_pt = self._triangulate(u_l, u_r, v)
@@ -396,7 +433,7 @@ class StereoPointTracker:
                         'age': 0,
                         'state': 'ACTIVE',
                         'history': [(current_pose, u_l, v)],
-                        'birth_frame': self.frame_idx  # <--- NEW
+                        'birth_frame': self.frame_idx  
                     }
 
                     self.points_2d_l = np.vstack([self.points_2d_l, [u_l, v]]) if len(self.points_2d_l) > 0 else np.array([[u_l, v]])
