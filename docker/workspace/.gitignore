@@ -4,3 +4,4 @@ log/
 debug/
 keyframe_*
 *.obj
+.bash_history
