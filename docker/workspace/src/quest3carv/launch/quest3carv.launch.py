@@ -43,4 +43,13 @@ def generate_launch_description():
             output='screen',
             emulate_tty=True
         ),
+
+        # Node 5: Save data to get a final model
+        Node(
+            package='quest3carv',
+            executable='saver',
+            name='mesh_saver',
+            output='screen',
+            emulate_tty=True
+        ),
     ])

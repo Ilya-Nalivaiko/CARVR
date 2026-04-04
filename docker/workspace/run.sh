@@ -1,4 +1,5 @@
 rm -rf debug/
+rm -rf export_dataset/
 
 source /opt/ros/humble/setup.bash
 source install/setup.bash

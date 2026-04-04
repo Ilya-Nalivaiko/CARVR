@@ -266,6 +266,7 @@ class SpatialReconstructionNode(Node):
             kf_msg = KeyframeData()
             kf_msg.header.stamp = self.get_clock().now().to_msg()
             kf_msg.header.frame_id = "world"
+            kf_msg.image = self.bridge.cv2_to_imgmsg(img_l, encoding="bgr8")
             
             # --- NEW: Send the OFFSET camera pose, not the raw head pose ---
             kf_msg.camera_pose.position.x = float(mat[0, 3])
