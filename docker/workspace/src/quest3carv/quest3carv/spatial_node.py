@@ -20,8 +20,8 @@ class SpatialReconstructionNode(Node):
         self.bridge = CvBridge()
         
         # Configuration for Keyframe Debugging
-        self.save_kf_images = True
-        self.show_kf_images = False
+        self.save_kf_images = False
+        self.show_kf_images = True
         self.save_ply_clouds = False
         self.output_dir = "/workspace/debug/clouds"
         if self.save_ply_clouds and not os.path.exists(self.output_dir):
