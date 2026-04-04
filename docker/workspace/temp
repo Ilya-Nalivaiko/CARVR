@@ -1,0 +1,437 @@
+[carving_node-3] [INFO] [1775275731.461809743] [carving_node]: Freespace Carving Node Initialized! Throttled to map every 3 keyframes.
+[sender-4] [INFO] [1775275731.730999140] [mesh_sender]: Waiting to connect to Quest on 192.168.1.147:5002...
+[receiver-1] [INFO] [1775275731.803674647] [video_receiver]: Quest 3 Stereo Receiver Node Started (Parallel Mode)
+[spatial_recon-2] [INFO] [1775275735.424162211] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_000.jpg
+[carving_node-3] [INFO] [1775275735.424910883] [carving_node]: Data buffered. Waiting for frame 3 to carve.
+[spatial_recon-2] [INFO] [1775275735.425034366] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275735.487085916] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_001.jpg
+[carving_node-3] [INFO] [1775275735.487594572] [carving_node]: Data buffered. Waiting for frame 3 to carve.
+[spatial_recon-2] [INFO] [1775275735.487812331] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275735.607499458] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_002.jpg
+[carving_node-3] [INFO] [1775275735.608096710] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275735.608157031] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275735.608209802] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[sender-4] [INFO] [1775275735.612073967] [mesh_sender]: Connected to Quest!
+[spatial_recon-2] [INFO] [1775275735.784515276] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_003.jpg
+[carving_node-3] [INFO] [1775275735.785045120] [carving_node]: Data buffered. Waiting for frame 6 to carve.
+[spatial_recon-2] [INFO] [1775275735.785154703] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275736.018586458] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_004.jpg
+[carving_node-3] [INFO] [1775275736.019107263] [carving_node]: Data buffered. Waiting for frame 6 to carve.
+[spatial_recon-2] [INFO] [1775275736.019219037] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275736.208841467] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_005.jpg
+[carving_node-3] [INFO] [1775275736.209422915] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275736.209468446] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275736.209536453] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275736.253039083] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_006.jpg
+[carving_node-3] [INFO] [1775275736.253619220] [carving_node]: Data buffered. Waiting for frame 9 to carve.
+[spatial_recon-2] [INFO] [1775275736.253749057] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275736.387170811] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_007.jpg
+[carving_node-3] [INFO] [1775275736.387689479] [carving_node]: Data buffered. Waiting for frame 9 to carve.
+[spatial_recon-2] [INFO] [1775275736.387821462] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275736.485769651] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_008.jpg
+[carving_node-3] [INFO] [1775275736.486311297] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275736.486351663] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275736.486390366] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275736.620768704] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_009.jpg
+[carving_node-3] [INFO] [1775275736.621283786] [carving_node]: Data buffered. Waiting for frame 12 to carve.
+[spatial_recon-2] [INFO] [1775275736.621441611] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275736.844592448] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_010.jpg
+[carving_node-3] [INFO] [1775275736.845192243] [carving_node]: Data buffered. Waiting for frame 12 to carve.
+[spatial_recon-2] [INFO] [1775275736.845376303] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275736.920090576] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_011.jpg
+[carving_node-3] [INFO] [1775275736.920640395] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275736.920681158] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275736.920852266] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275737.008344595] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_012.jpg
+[carving_node-3] [INFO] [1775275737.008847672] [carving_node]: Data buffered. Waiting for frame 15 to carve.
+[spatial_recon-2] [INFO] [1775275737.008987075] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275737.084322882] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_013.jpg
+[carving_node-3] [INFO] [1775275737.084827635] [carving_node]: Data buffered. Waiting for frame 15 to carve.
+[spatial_recon-2] [INFO] [1775275737.084985978] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275737.110153240] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_014.jpg
+[carving_node-3] [INFO] [1775275737.110718178] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275737.110760063] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275737.110817735] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275737.176013919] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_015.jpg
+[carving_node-3] [INFO] [1775275737.176536458] [carving_node]: Data buffered. Waiting for frame 18 to carve.
+[spatial_recon-2] [INFO] [1775275737.176687720] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275737.251280164] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_016.jpg
+[carving_node-3] [INFO] [1775275737.251810553] [carving_node]: Data buffered. Waiting for frame 18 to carve.
+[spatial_recon-2] [INFO] [1775275737.251948511] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275737.318664220] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_017.jpg
+[carving_node-3] [INFO] [1775275737.319227096] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275737.319274640] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275737.319354472] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275737.409349997] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_018.jpg
+[carving_node-3] [INFO] [1775275737.409901661] [carving_node]: Data buffered. Waiting for frame 21 to carve.
+[spatial_recon-2] [INFO] [1775275737.410023449] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275737.551256610] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_019.jpg
+[carving_node-3] [INFO] [1775275737.551910494] [carving_node]: Data buffered. Waiting for frame 21 to carve.
+[spatial_recon-2] [INFO] [1775275737.552051872] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275737.618580979] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_020.jpg
+[carving_node-3] [INFO] [1775275737.619129602] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275737.619186970] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275737.619211453] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275737.719287806] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_021.jpg
+[carving_node-3] [INFO] [1775275737.719801125] [carving_node]: Data buffered. Waiting for frame 24 to carve.
+[spatial_recon-2] [INFO] [1775275737.719936081] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275737.875466693] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_022.jpg
+[carving_node-3] [INFO] [1775275737.875989830] [carving_node]: Data buffered. Waiting for frame 24 to carve.
+[spatial_recon-2] [INFO] [1775275737.876101543] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275738.041297422] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_023.jpg
+[carving_node-3] [INFO] [1775275738.041952856] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275738.042018776] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275738.042062884] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275738.185081255] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_024.jpg
+[carving_node-3] [INFO] [1775275738.185712550] [carving_node]: Data buffered. Waiting for frame 27 to carve.
+[spatial_recon-2] [INFO] [1775275738.185854033] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275738.318727277] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_025.jpg
+[carving_node-3] [INFO] [1775275738.319264313] [carving_node]: Data buffered. Waiting for frame 27 to carve.
+[spatial_recon-2] [INFO] [1775275738.319349435] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275738.485992887] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_026.jpg
+[carving_node-3] [INFO] [1775275738.486532383] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275738.486573996] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275738.486676096] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275738.709493491] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_027.jpg
+[carving_node-3] [INFO] [1775275738.710013528] [carving_node]: Data buffered. Waiting for frame 30 to carve.
+[spatial_recon-2] [INFO] [1775275738.710182194] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275738.754594726] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_028.jpg
+[carving_node-3] [INFO] [1775275738.755503819] [carving_node]: Data buffered. Waiting for frame 30 to carve.
+[spatial_recon-2] [INFO] [1775275738.755666514] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275739.018648398] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_029.jpg
+[carving_node-3] [INFO] [1775275739.019166395] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275739.019222296] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275739.019285140] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275739.087904470] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_030.jpg
+[carving_node-3] [INFO] [1775275739.088436647] [carving_node]: Data buffered. Waiting for frame 33 to carve.
+[spatial_recon-2] [INFO] [1775275739.088585663] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275739.153411033] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_031.jpg
+[carving_node-3] [INFO] [1775275739.153923556] [carving_node]: Data buffered. Waiting for frame 33 to carve.
+[spatial_recon-2] [INFO] [1775275739.154043716] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275739.219631043] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_032.jpg
+[carving_node-3] [INFO] [1775275739.220185527] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275739.220233930] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275739.220414114] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275739.319194891] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_033.jpg
+[carving_node-3] [INFO] [1775275739.319705075] [carving_node]: Data buffered. Waiting for frame 36 to carve.
+[spatial_recon-2] [INFO] [1775275739.319833135] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275739.385774667] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_034.jpg
+[carving_node-3] [INFO] [1775275739.386292545] [carving_node]: Data buffered. Waiting for frame 36 to carve.
+[spatial_recon-2] [INFO] [1775275739.386435661] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275739.486345613] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_035.jpg
+[carving_node-3] [INFO] [1775275739.486870495] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275739.486919632] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275739.486974173] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275739.585807549] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_036.jpg
+[carving_node-3] [INFO] [1775275739.586384267] [carving_node]: Data buffered. Waiting for frame 39 to carve.
+[spatial_recon-2] [INFO] [1775275739.586512797] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275739.721634016] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_037.jpg
+[carving_node-3] [INFO] [1775275739.722186755] [carving_node]: Data buffered. Waiting for frame 39 to carve.
+[spatial_recon-2] [INFO] [1775275739.722398394] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275739.887178070] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_038.jpg
+[carving_node-3] [INFO] [1775275739.887769621] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275739.887824023] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275739.887875353] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275740.021498024] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_039.jpg
+[carving_node-3] [INFO] [1775275740.022031244] [carving_node]: Data buffered. Waiting for frame 42 to carve.
+[spatial_recon-2] [INFO] [1775275740.022173489] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275740.111422969] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_040.jpg
+[carving_node-3] [INFO] [1775275740.111925222] [carving_node]: Data buffered. Waiting for frame 42 to carve.
+[spatial_recon-2] [INFO] [1775275740.112050555] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275740.213222208] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_041.jpg
+[carving_node-3] [INFO] [1775275740.213792804] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275740.213841296] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275740.213921720] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275740.257176736] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_042.jpg
+[carving_node-3] [INFO] [1775275740.257832379] [carving_node]: Data buffered. Waiting for frame 45 to carve.
+[spatial_recon-2] [INFO] [1775275740.257980685] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275740.310723965] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_043.jpg
+[carving_node-3] [INFO] [1775275740.311439496] [carving_node]: Data buffered. Waiting for frame 45 to carve.
+[spatial_recon-2] [INFO] [1775275740.311614934] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275740.353014076] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_044.jpg
+[carving_node-3] [INFO] [1775275740.353610233] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275740.353661314] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275740.353741394] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275740.421252864] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_045.jpg
+[carving_node-3] [INFO] [1775275740.422086947] [carving_node]: Data buffered. Waiting for frame 48 to carve.
+[spatial_recon-2] [INFO] [1775275740.422247873] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275740.454204767] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_046.jpg
+[carving_node-3] [INFO] [1775275740.454708996] [carving_node]: Data buffered. Waiting for frame 48 to carve.
+[spatial_recon-2] [INFO] [1775275740.454846468] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275740.541869714] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_047.jpg
+[carving_node-3] [INFO] [1775275740.542436596] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275740.542490714] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275740.542551700] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275740.587749197] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_048.jpg
+[carving_node-3] [INFO] [1775275740.588380933] [carving_node]: Data buffered. Waiting for frame 51 to carve.
+[spatial_recon-2] [INFO] [1775275740.588571067] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275740.718946352] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_049.jpg
+[carving_node-3] [INFO] [1775275740.719476632] [carving_node]: Data buffered. Waiting for frame 51 to carve.
+[spatial_recon-2] [INFO] [1775275740.719620188] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275740.785447035] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_050.jpg
+[carving_node-3] [INFO] [1775275740.786201747] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275740.786245250] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275740.786588018] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275740.879963252] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_051.jpg
+[carving_node-3] [INFO] [1775275740.880540657] [carving_node]: Data buffered. Waiting for frame 54 to carve.
+[spatial_recon-2] [INFO] [1775275740.880682622] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275740.941686859] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_052.jpg
+[carving_node-3] [INFO] [1775275740.942202610] [carving_node]: Data buffered. Waiting for frame 54 to carve.
+[spatial_recon-2] [INFO] [1775275740.942336132] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275740.986861982] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_053.jpg
+[carving_node-3] [INFO] [1775275740.987413538] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275740.987459210] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275740.987523065] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275741.086679581] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_054.jpg
+[carving_node-3] [INFO] [1775275741.087179908] [carving_node]: Data buffered. Waiting for frame 57 to carve.
+[spatial_recon-2] [INFO] [1775275741.087310635] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275741.142570778] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_055.jpg
+[carving_node-3] [INFO] [1775275741.143305336] [carving_node]: Data buffered. Waiting for frame 57 to carve.
+[spatial_recon-2] [INFO] [1775275741.143487942] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275741.242658101] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_056.jpg
+[carving_node-3] [INFO] [1775275741.243252172] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275741.243309284] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275741.243375903] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275741.376901282] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_057.jpg
+[carving_node-3] [INFO] [1775275741.377468308] [carving_node]: Data buffered. Waiting for frame 60 to carve.
+[spatial_recon-2] [INFO] [1775275741.377569435] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275741.520868312] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_058.jpg
+[carving_node-3] [INFO] [1775275741.521793936] [carving_node]: Data buffered. Waiting for frame 60 to carve.
+[spatial_recon-2] [INFO] [1775275741.522002944] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275741.577232959] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_059.jpg
+[carving_node-3] [INFO] [1775275741.577836201] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275741.577899989] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275741.577918347] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275741.755406649] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_060.jpg
+[carving_node-3] [INFO] [1775275741.756022483] [carving_node]: Data buffered. Waiting for frame 63 to carve.
+[spatial_recon-2] [INFO] [1775275741.756138105] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275741.820111515] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_061.jpg
+[carving_node-3] [INFO] [1775275741.820629116] [carving_node]: Data buffered. Waiting for frame 63 to carve.
+[spatial_recon-2] [INFO] [1775275741.820747652] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275741.919766516] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_062.jpg
+[carving_node-3] [INFO] [1775275741.920426687] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275741.920470890] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275741.920617555] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 7)
+[spatial_recon-2] [INFO] [1775275741.976976602] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_063.jpg
+[carving_node-3] [INFO] [1775275741.977501583] [carving_node]: Data buffered. Waiting for frame 66 to carve.
+[spatial_recon-2] [INFO] [1775275741.977636248] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275742.085740412] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_064.jpg
+[carving_node-3] [INFO] [1775275742.086313696] [carving_node]: Data buffered. Waiting for frame 66 to carve.
+[spatial_recon-2] [INFO] [1775275742.086483499] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 7)
+[spatial_recon-2] [INFO] [1775275742.145294709] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_065.jpg
+[carving_node-3] [INFO] [1775275742.145842018] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275742.145893178] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275742.145957418] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 7)
+[spatial_recon-2] [INFO] [1775275742.253807733] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_066.jpg
+[carving_node-3] [INFO] [1775275742.254676327] [carving_node]: Data buffered. Waiting for frame 69 to carve.
+[spatial_recon-2] [INFO] [1775275742.254848494] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275742.390552486] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_067.jpg
+[carving_node-3] [INFO] [1775275742.391216409] [carving_node]: Data buffered. Waiting for frame 69 to carve.
+[spatial_recon-2] [INFO] [1775275742.391375564] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275742.579010898] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_068.jpg
+[carving_node-3] [INFO] [1775275742.579594015] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275742.579644161] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275742.579686340] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275742.710717425] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_069.jpg
+[carving_node-3] [INFO] [1775275742.711250415] [carving_node]: Data buffered. Waiting for frame 72 to carve.
+[spatial_recon-2] [INFO] [1775275742.711371309] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275742.811270820] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_070.jpg
+[carving_node-3] [INFO] [1775275742.811871458] [carving_node]: Data buffered. Waiting for frame 72 to carve.
+[spatial_recon-2] [INFO] [1775275742.812005217] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275742.920092734] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_071.jpg
+[carving_node-3] [INFO] [1775275742.920614083] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275742.920657026] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275742.920739728] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275743.143553691] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_072.jpg
+[carving_node-3] [INFO] [1775275743.144138000] [carving_node]: Data buffered. Waiting for frame 75 to carve.
+[spatial_recon-2] [INFO] [1775275743.144261286] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275743.287519597] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_073.jpg
+[carving_node-3] [INFO] [1775275743.288154510] [carving_node]: Data buffered. Waiting for frame 75 to carve.
+[spatial_recon-2] [INFO] [1775275743.288302883] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275743.442988970] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_074.jpg
+[carving_node-3] [INFO] [1775275743.443605218] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275743.443656812] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275743.443703820] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 7)
+[spatial_recon-2] [INFO] [1775275743.576451416] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_075.jpg
+[carving_node-3] [INFO] [1775275743.577111199] [carving_node]: Data buffered. Waiting for frame 78 to carve.
+[spatial_recon-2] [INFO] [1775275743.577306441] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275743.685622961] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_076.jpg
+[carving_node-3] [INFO] [1775275743.686153609] [carving_node]: Data buffered. Waiting for frame 78 to carve.
+[spatial_recon-2] [INFO] [1775275743.686325550] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275743.756302620] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_077.jpg
+[carving_node-3] [INFO] [1775275743.757097399] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275743.757141484] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275743.757225212] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275743.854586815] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_078.jpg
+[carving_node-3] [INFO] [1775275743.855111424] [carving_node]: Data buffered. Waiting for frame 81 to carve.
+[spatial_recon-2] [INFO] [1775275743.855252258] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275743.955207834] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_079.jpg
+[carving_node-3] [INFO] [1775275743.955897158] [carving_node]: Data buffered. Waiting for frame 81 to carve.
+[spatial_recon-2] [INFO] [1775275743.956120659] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275744.119863112] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_080.jpg
+[carving_node-3] [INFO] [1775275744.120423945] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275744.120479044] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275744.120540147] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275744.210624876] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_081.jpg
+[carving_node-3] [INFO] [1775275744.211135251] [carving_node]: Data buffered. Waiting for frame 84 to carve.
+[spatial_recon-2] [INFO] [1775275744.211260409] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275744.319940347] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_082.jpg
+[carving_node-3] [INFO] [1775275744.320440437] [carving_node]: Data buffered. Waiting for frame 84 to carve.
+[spatial_recon-2] [INFO] [1775275744.320579478] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275744.409851431] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_083.jpg
+[carving_node-3] [INFO] [1775275744.410578941] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275744.410641495] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275744.410686477] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275744.454088012] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_084.jpg
+[carving_node-3] [INFO] [1775275744.454713221] [carving_node]: Data buffered. Waiting for frame 87 to carve.
+[spatial_recon-2] [INFO] [1775275744.454853889] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275744.578281201] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_085.jpg
+[carving_node-3] [INFO] [1775275744.578834383] [carving_node]: Data buffered. Waiting for frame 87 to carve.
+[spatial_recon-2] [INFO] [1775275744.578957251] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 7)
+[spatial_recon-2] [INFO] [1775275744.620607518] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_086.jpg
+[carving_node-3] [INFO] [1775275744.621181887] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275744.621229619] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275744.621343255] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275744.710253614] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_087.jpg
+[carving_node-3] [INFO] [1775275744.710903282] [carving_node]: Data buffered. Waiting for frame 90 to carve.
+[spatial_recon-2] [INFO] [1775275744.711031543] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275744.756269415] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_088.jpg
+[carving_node-3] [INFO] [1775275744.756803490] [carving_node]: Data buffered. Waiting for frame 90 to carve.
+[spatial_recon-2] [INFO] [1775275744.756929548] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275744.945015168] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_089.jpg
+[carving_node-3] [INFO] [1775275744.945564632] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275744.945626883] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275744.945664966] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275745.119025512] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_090.jpg
+[carving_node-3] [INFO] [1775275745.119565836] [carving_node]: Data buffered. Waiting for frame 93 to carve.
+[spatial_recon-2] [INFO] [1775275745.119689402] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275745.351646995] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_091.jpg
+[carving_node-3] [INFO] [1775275745.352273505] [carving_node]: Data buffered. Waiting for frame 93 to carve.
+[spatial_recon-2] [INFO] [1775275745.352399993] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275745.517887498] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_092.jpg
+[carving_node-3] [INFO] [1775275745.518457838] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275745.518498992] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275745.518662612] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275745.885104420] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_093.jpg
+[carving_node-3] [INFO] [1775275745.885666736] [carving_node]: Data buffered. Waiting for frame 96 to carve.
+[spatial_recon-2] [INFO] [1775275745.885782351] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275746.019620538] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_094.jpg
+[carving_node-3] [INFO] [1775275746.020278336] [carving_node]: Data buffered. Waiting for frame 96 to carve.
+[spatial_recon-2] [INFO] [1775275746.020402973] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275746.085613190] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_095.jpg
+[carving_node-3] [INFO] [1775275746.086303522] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275746.086377178] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275746.086682547] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275746.221540432] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_096.jpg
+[carving_node-3] [INFO] [1775275746.222103012] [carving_node]: Data buffered. Waiting for frame 99 to carve.
+[spatial_recon-2] [INFO] [1775275746.222190854] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 7)
+[spatial_recon-2] [INFO] [1775275746.287418322] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_097.jpg
+[carving_node-3] [INFO] [1775275746.288118991] [carving_node]: Data buffered. Waiting for frame 99 to carve.
+[spatial_recon-2] [INFO] [1775275746.288264606] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 7)
+[spatial_recon-2] [INFO] [1775275746.378332875] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_098.jpg
+[carving_node-3] [INFO] [1775275746.378897921] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275746.378940176] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275746.379001528] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 7)
+[spatial_recon-2] [INFO] [1775275746.552360209] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_099.jpg
+[carving_node-3] [INFO] [1775275746.552895630] [carving_node]: Data buffered. Waiting for frame 102 to carve.
+[spatial_recon-2] [INFO] [1775275746.552992996] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275746.723884072] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_100.jpg
+[carving_node-3] [INFO] [1775275746.725246900] [carving_node]: Data buffered. Waiting for frame 102 to carve.
+[spatial_recon-2] [INFO] [1775275746.725748413] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 9)
+[spatial_recon-2] [INFO] [1775275746.822929892] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_101.jpg
+[carving_node-3] [INFO] [1775275746.823812850] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275746.823894697] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275746.823915744] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 9)
+[spatial_recon-2] [INFO] [1775275746.942545383] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_102.jpg
+[carving_node-3] [INFO] [1775275746.943141742] [carving_node]: Data buffered. Waiting for frame 105 to carve.
+[spatial_recon-2] [INFO] [1775275746.943252422] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 10)
+[spatial_recon-2] [INFO] [1775275747.017946086] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_103.jpg
+[carving_node-3] [INFO] [1775275747.018728628] [carving_node]: Data buffered. Waiting for frame 105 to carve.
+[spatial_recon-2] [INFO] [1775275747.018981896] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 10)
+[spatial_recon-2] [INFO] [1775275747.087838850] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_104.jpg
+[carving_node-3] [INFO] [1775275747.088588033] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275747.088661021] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275747.088729047] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 11)
+[spatial_recon-2] [INFO] [1775275747.208560021] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_105.jpg
+[carving_node-3] [INFO] [1775275747.209067425] [carving_node]: Data buffered. Waiting for frame 108 to carve.
+[spatial_recon-2] [INFO] [1775275747.209189457] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 8)
+[spatial_recon-2] [INFO] [1775275747.311530102] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_106.jpg
+[carving_node-3] [INFO] [1775275747.312668322] [carving_node]: Data buffered. Waiting for frame 108 to carve.
+[spatial_recon-2] [INFO] [1775275747.312939337] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275747.442274380] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_107.jpg
+[carving_node-3] [INFO] [1775275747.442828126] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275747.442872752] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275747.442915665] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275747.518376335] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_108.jpg
+[carving_node-3] [INFO] [1775275747.518985040] [carving_node]: Data buffered. Waiting for frame 111 to carve.
+[spatial_recon-2] [INFO] [1775275747.519107753] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275747.675436562] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_109.jpg
+[carving_node-3] [INFO] [1775275747.675969912] [carving_node]: Data buffered. Waiting for frame 111 to carve.
+[spatial_recon-2] [INFO] [1775275747.676098803] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275747.842878025] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_110.jpg
+[carving_node-3] [INFO] [1775275747.843523467] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275747.843589516] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275747.843660756] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275747.942104467] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_111.jpg
+[carving_node-3] [INFO] [1775275747.942661048] [carving_node]: Data buffered. Waiting for frame 114 to carve.
+[spatial_recon-2] [INFO] [1775275747.942794564] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275748.208998385] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_112.jpg
+[carving_node-3] [INFO] [1775275748.209506028] [carving_node]: Data buffered. Waiting for frame 114 to carve.
+[spatial_recon-2] [INFO] [1775275748.209643171] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275748.319038630] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_113.jpg
+[carving_node-3] [INFO] [1775275748.319537758] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275748.319582602] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275748.319661892] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275748.387371135] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_114.jpg
+[carving_node-3] [INFO] [1775275748.387945455] [carving_node]: Data buffered. Waiting for frame 117 to carve.
+[spatial_recon-2] [INFO] [1775275748.388086490] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275748.454563007] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_115.jpg
+[carving_node-3] [INFO] [1775275748.455114365] [carving_node]: Data buffered. Waiting for frame 117 to carve.
+[spatial_recon-2] [INFO] [1775275748.455229341] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275748.554111490] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_116.jpg
+[carving_node-3] [INFO] [1775275748.554695860] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275748.554747564] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275748.554830986] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 6)
+[spatial_recon-2] [INFO] [1775275748.588225002] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_117.jpg
+[carving_node-3] [INFO] [1775275748.588907501] [carving_node]: Data buffered. Waiting for frame 120 to carve.
+[spatial_recon-2] [INFO] [1775275748.589041598] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 5)
+[spatial_recon-2] [INFO] [1775275748.642649100] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_118.jpg
+[carving_node-3] [INFO] [1775275748.643272868] [carving_node]: Data buffered. Waiting for frame 120 to carve.
+[spatial_recon-2] [INFO] [1775275748.643453435] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 4)
+[spatial_recon-2] [INFO] [1775275748.685540180] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_119.jpg
+[carving_node-3] [INFO] [1775275748.686045858] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275748.686087624] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275748.686182955] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275748.742500045] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_120.jpg
+[carving_node-3] [INFO] [1775275748.742996711] [carving_node]: Data buffered. Waiting for frame 123 to carve.
+[spatial_recon-2] [INFO] [1775275748.743130412] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275748.853843387] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_121.jpg
+[carving_node-3] [INFO] [1775275748.854381426] [carving_node]: Data buffered. Waiting for frame 123 to carve.
+[spatial_recon-2] [INFO] [1775275748.854521678] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275748.878246726] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_122.jpg
+[carving_node-3] [INFO] [1775275748.878735199] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275748.878776161] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275748.878873302] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275748.943150755] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_123.jpg
+[carving_node-3] [INFO] [1775275748.943668560] [carving_node]: Data buffered. Waiting for frame 126 to carve.
+[spatial_recon-2] [INFO] [1775275748.943806780] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275748.977913725] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_124.jpg
+[carving_node-3] [INFO] [1775275748.978489412] [carving_node]: Data buffered. Waiting for frame 126 to carve.
+[spatial_recon-2] [INFO] [1775275748.978636753] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275749.010240936] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_125.jpg
+[carving_node-3] [INFO] [1775275749.010822079] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275749.010880842] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275749.010901945] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275749.109409766] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_126.jpg
+[carving_node-3] [INFO] [1775275749.110022602] [carving_node]: Data buffered. Waiting for frame 129 to carve.
+[spatial_recon-2] [INFO] [1775275749.110138261] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 3)
+[spatial_recon-2] [INFO] [1775275749.177232133] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_127.jpg
+[carving_node-3] [INFO] [1775275749.177789340] [carving_node]: Data buffered. Waiting for frame 129 to carve.
+[spatial_recon-2] [INFO] [1775275749.177949955] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 1)
+[spatial_recon-2] [INFO] [1775275749.609499586] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_128.jpg
+[carving_node-3] [INFO] [1775275749.610058413] [carving_node]: Carving tetrahedra...
+[carving_node-3] [INFO] [1775275749.610108268] [carving_node]: Mesh extracted! 0 clean triangles generated.
+[spatial_recon-2] [INFO] [1775275749.610194077] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)
+[spatial_recon-2] [INFO] [1775275749.678676524] [spatial_recon]: Saved debug keyframe: /workspace/debug/keyframes/keyframe_129.jpg
+[carving_node-3] [INFO] [1775275749.679170626] [carving_node]: Data buffered. Waiting for frame 132 to carve.
+[spatial_recon-2] [INFO] [1775275749.679310228] [spatial_recon]: Published KeyframeData with 0 points (fustrum culled 2)

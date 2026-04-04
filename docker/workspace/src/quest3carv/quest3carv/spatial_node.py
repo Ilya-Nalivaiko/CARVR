@@ -126,7 +126,7 @@ class SpatialReconstructionNode(Node):
             os.makedirs("/workspace/debug/keyframes/", exist_ok=True)
             filename = f"/workspace/debug/keyframes/keyframe_{kf_idx:03d}.jpg"
             cv2.imwrite(filename, debug_img)
-            self.get_logger().info(f"Saved debug keyframe: {filename}")
+            #self.get_logger().info(f"Saved debug keyframe: {filename}")
 
         if self.show_kf_images:
             cv2.imshow("Keyframe Triggered", debug_img)
@@ -176,7 +176,7 @@ class SpatialReconstructionNode(Node):
             for p, c in zip(world_points, colors):
                 f.write(f"{p[0]} {p[1]} {p[2]} {c[0]} {c[1]} {c[2]}\n")
         
-        self.get_logger().info(f"Saved global cloud to {filepath}")
+        #self.get_logger().info(f"Saved global cloud to {filepath}")
 
     def is_significant_move(self, current_pose_msg):
         if self.last_kf_pose is None: return True
@@ -281,20 +281,55 @@ class SpatialReconstructionNode(Node):
             
             cam_pos = np.array([msg_p.pose.position.x, msg_p.pose.position.y, msg_p.pose.position.z])
 
-            # Pack the 3D points (WITH NOISE FILTERING)
+            # --- PREPARE FRUSTUM CULLING MATRICES ---
+            T_w2c = np.linalg.inv(mat)
+            K = self.P1[:3, :3]
+            fx, fy = K[0, 0], K[1, 1]
+            cx, cy = K[0, 2], K[1, 2]
+            
+            # Use the actual camera origin for distance, not the raw head pose
+            cam_pos = mat[:3, 3] 
+
+            culled_dist = 0
+            culled_frustum = 0
+            
+            first_fail_logged = False
+
             for i, pt in enumerate(points_3d):
-                # Calculate distance from camera to point
                 dist = np.linalg.norm(pt - cam_pos) 
                 
-                # Only trust points within Quest 3's reliable stereo range (30cm to 3.5m)
-                if 0.3 < dist < 3.5:
-                    p = Point()
-                    p.x, p.y, p.z = float(pt[0]), float(pt[1]), float(pt[2])
-                    kf_msg.points.append(p)
-                    kf_msg.point_ids.append(int(ids_3d[i]))
+                if 0.2 < dist < 3.5:
+                    # Project world point into this camera's local frame
+                    p_cam = T_w2c[:3, :3] @ pt + T_w2c[:3, 3]
+                    
+                    # Use absolute value to bypass the +Z/-Z OpenXR trap temporarily
+                    z_safe = abs(p_cam[2]) 
+                    
+                    if z_safe > 0.1:
+                        # Mathematical projection onto the 2D sensor
+                        # Note: We use absolute Z, and if Y was flipped by OpenXR, we check both
+                        u = (fx * p_cam[0] / -p_cam[2] if p_cam[2] < 0 else fx * p_cam[0] / p_cam[2]) + cx
+                        v = (fy * p_cam[1] / -p_cam[2] if p_cam[2] < 0 else fy * p_cam[1] / p_cam[2]) + cy
+                        
+                        # 10-pixel safety margin
+                        if 10 <= u < 630 and 10 <= v < 630:
+                            p = Point()
+                            p.x, p.y, p.z = float(pt[0]), float(pt[1]), float(pt[2])
+                            kf_msg.points.append(p)
+                            kf_msg.point_ids.append(int(ids_3d[i]))
+                        else:
+                            culled_frustum += 1
+                            if not first_fail_logged:
+                                self.get_logger().warn(f"CULL REASON (Frustum): 3D Local={p_cam}, Projected 2D=(u:{u:.1f}, v:{v:.1f})")
+                                first_fail_logged = True
+                else:
+                    culled_dist += 1
+                    if not first_fail_logged:
+                        self.get_logger().warn(f"CULL REASON (Distance): {dist:.2f} meters")
+                        first_fail_logged = True
                 
             self.kf_pub.publish(kf_msg)
-            self.get_logger().info(f"Published KeyframeData with {len(points_3d)} points to C++ Carving Node.")
+            self.get_logger().info(f"Keyframe: Sent {len(kf_msg.points)} | Culled Dist: {culled_dist} | Culled Frustum: {culled_frustum}")
 
 def main():
     rclpy.init()

@@ -10,7 +10,7 @@ MAX_POINTS = 2000
 MIN_AGE_CONFIDENCE = 8
 MAX_PROBATION_FRAMES = 100       # How many frames a point has to reach maturity
 REPLENISH_THRESHOLD_RATIO = 0.8
-GFTT_QUALITY_LEVEL = 0.10
+GFTT_QUALITY_LEVEL = 0.15
 GFTT_MIN_DISTANCE = 15
 MIN_PATCH_VARIANCE = 30.0
 
@@ -19,7 +19,8 @@ KLT_MAX_LEVEL = 4
 
 ZNCC_THRESHOLD_STEREO = 0.50
 ZNCC_THRESHOLD_TEMPORAL = 0.40
-PATCH_SIZE = 15
+ZNCC_UNIQUENESS_MARGIN = 0.15    # The best peak must beat the second best by at least this much
+PATCH_SIZE = 31
 
 # Stereo Search Bounds
 MAX_DISPARITY = 120              # Minimum physical depth limit (close to headset)
@@ -89,6 +90,11 @@ class StereoPointTracker:
         """Main entry point for processing a new stereo pair."""
         gray_l = cv2.cvtColor(img_l, cv2.COLOR_BGR2GRAY)
         gray_r = cv2.cvtColor(img_r, cv2.COLOR_BGR2GRAY)
+
+        # Kill the high-frequency sensor noise
+        gray_l = cv2.GaussianBlur(gray_l, (5, 5), 0)
+        gray_r = cv2.GaussianBlur(gray_r, (5, 5), 0)
+
         debug_out = img_l.copy() if DRAW_DEBUG else None
 
         # Initialization
@@ -180,12 +186,29 @@ class StereoPointTracker:
             strip_r = gray_r[v_i - self.half_p : v_i + self.half_p + 1,
                              u_min - self.half_p : u_max + self.half_p + 1]
 
+            # 1D ZNCC Global Search
             res = cv2.matchTemplate(strip_r, patch_l, cv2.TM_CCOEFF_NORMED)
             _, max_val, _, max_loc = cv2.minMaxLoc(res)
 
-            if max_val >= self.ZNCC_THRESHOLD_STEREO:
+            if max_val >= ZNCC_THRESHOLD_STEREO:
+                
+                # Mask out a 9-pixel window around the best peak to find the second-best peak
+                res_1d = res[0].copy()
+                x_best = max_loc[0]
+                start_mask = max(0, x_best - 4)
+                end_mask = min(len(res_1d), x_best + 5)
+                res_1d[start_mask:end_mask] = -1.0 # Kill the primary peak
+                
+                _, second_max_val, _, _ = cv2.minMaxLoc(res_1d.reshape(1, -1))
+                
+                # If the texture is repetitive or ambiguous, KILL IT.
+                if (max_val - second_max_val) < ZNCC_UNIQUENESS_MARGIN:
+                    continue 
+                # -------------------------------
+
                 best_u_r = u_min + max_loc[0]
 
+                # Sub-Pixel Refinement via Parabola Fitting
                 x = max_loc[0]
                 if 0 < x < res.shape[1] - 1:
                     y1, y2, y3 = res[0, x-1], res[0, x], res[0, x+1]
