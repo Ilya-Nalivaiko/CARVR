@@ -21,14 +21,24 @@ ZNCC_THRESHOLD_STEREO = 0.50
 ZNCC_THRESHOLD_TEMPORAL = 0.40
 PATCH_SIZE = 15
 
-STEREO_DISP_GUESS = 20
-MAX_V_DRIFT = 1.5
-MIN_DISPARITY = 1.0
+# Stereo Search Bounds
+MAX_DISPARITY = 120              # Minimum physical depth limit (close to headset)
+MIN_DISPARITY = 2.5              # Maximum physical depth limit (horizon)
 MIN_DEPTH_PROJ = 0.1
 
 VOXEL_SIZE = 0.10                
 MIN_SVD_BASELINE = 0.05
 SVD_CONDITION_THRESHOLD = 15.0   # Reject degenerate multi-view geometry
+
+# Depth Veto Tolerances
+TRUST_DEPTH_AGE = 5              # Age required before enforcing asymmetric depth checks
+MAX_OUTWARD_DRIFT = 0.10         # Strict tolerance for points moving away (drills)
+MAX_INWARD_DRIFT = -0.30         # Loose tolerance for points moving closer (occlusions)
+
+# Tracking History & Smoothing
+EMA_ALPHA = 0.3                  # Weight for Exponential Moving Average smoothing
+MAX_HISTORY_FRAMES = 15          # Maximum poses retained for SVD optimization
+EPSILON = 1e-6                   # Math safety denominator
 
 # --- THE NEW VETO PARAMETERS ---
 EDGE_MARGIN = 40                 # Stay away from cv2.remap black borders!
@@ -51,6 +61,7 @@ class StereoPointTracker:
         self.max_points = MAX_POINTS
         self.min_age_confidence = MIN_AGE_CONFIDENCE
         self.ZNCC_THRESHOLD_TEMPORAL = ZNCC_THRESHOLD_TEMPORAL
+        self.ZNCC_THRESHOLD_STEREO = ZNCC_THRESHOLD_STEREO
         self.win_size_klt = KLT_WIN_SIZE
         self.patch_size = PATCH_SIZE
         self.half_p = self.patch_size // 2
@@ -144,131 +155,107 @@ class StereoPointTracker:
             self._drop_to_lost(zncc_mask)
             self.ages += 1 # Age increments only if they survive temporal + appearance
 
+    def _epipolar_stereo_search(self, gray_l, gray_r, pts_l):
+        H, W = gray_l.shape
+        stereo_mask = np.zeros(len(pts_l), dtype=bool)
+        disparities = np.zeros(len(pts_l), dtype=np.float32)
+
+        for i, (u, v) in enumerate(pts_l):
+            u_i, v_i = int(u), int(v)
+
+            if u_i - self.half_p < 0 or u_i + self.half_p >= W or \
+               v_i - self.half_p < 0 or v_i + self.half_p >= H:
+                continue
+
+            patch_l = gray_l[v_i - self.half_p : v_i + self.half_p + 1,
+                             u_i - self.half_p : u_i + self.half_p + 1]
+
+            # --- THE FIX: Force floats into integers so Numpy slicing doesn't crash ---
+            u_min = int(max(self.half_p, u_i - MAX_DISPARITY))
+            u_max = int(min(W - self.half_p - 1, u_i - MIN_DISPARITY))
+
+            if u_max <= u_min: 
+                continue
+
+            strip_r = gray_r[v_i - self.half_p : v_i + self.half_p + 1,
+                             u_min - self.half_p : u_max + self.half_p + 1]
+
+            res = cv2.matchTemplate(strip_r, patch_l, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(res)
+
+            if max_val >= self.ZNCC_THRESHOLD_STEREO:
+                best_u_r = u_min + max_loc[0]
+
+                x = max_loc[0]
+                if 0 < x < res.shape[1] - 1:
+                    y1, y2, y3 = res[0, x-1], res[0, x], res[0, x+1]
+                    denom = (y1 - 2*y2 + y3)
+                    if denom != 0:
+                        best_u_r += (y1 - y3) / (2 * denom)
+
+                stereo_mask[i] = True
+                disparities[i] = u - best_u_r
+
+        return stereo_mask, disparities
+
     def _match_stereo_and_update_map(self, gray_l, gray_r, current_pose, debug_out):
         """Step 3: Verifies depth, applies EMA smoothing, and triggers SVD on maturity."""
         if len(self.points_2d_l) == 0:
             return
 
-        stereo_guess = self.points_2d_l.copy().astype(np.float32)
-        stereo_guess[:, 0] -= STEREO_DISP_GUESS
+        stereo_mask, disparities = self._epipolar_stereo_search(gray_l, gray_r, self.points_2d_l)
 
-        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(
-            gray_l, gray_r, self.points_2d_l.astype(np.float32).reshape(-1, 1, 2),
-            stereo_guess.reshape(-1, 1, 2), winSize=self.win_size_klt, maxLevel=KLT_MAX_LEVEL,
-            flags=cv2.OPTFLOW_USE_INITIAL_FLOW
-        )
-
-        if stat_r is None: return
-
-        stat_r = stat_r.reshape(-1).astype(bool)
-        res_r = res_r.reshape(-1, 2)
-
-        # --- FIX: Bounds Checking Before Sub-Pixel Refinement ---
-        H, W = gray_r.shape
-        margin = EDGE_MARGIN # Safe margin from cv2.remap black void
-        
-        # Create a mask of points that are safely inside the image
-        bounds_mask = (res_r[:, 0] >= margin) & (res_r[:, 0] < W - margin) & \
-                      (res_r[:, 1] >= margin) & (res_r[:, 1] < H - margin)
-
-        # Combine KLT status with our bounds mask
-        valid_mask = stat_r & bounds_mask
-        
-        # Immediately drop failed/out-of-bounds points to keep arrays aligned
-        self._drop_to_lost(valid_mask)
-        res_r = res_r[valid_mask]
-
-        # If all points failed or went off-screen, abort step
-        if len(self.points_2d_l) == 0:
-            return
-
-        # NOW it is safe to refine right-eye to sub-pixel accuracy
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.01)
-        res_r = cv2.cornerSubPix(gray_r, res_r.astype(np.float32), (5, 5), (-1, -1), criteria)
-
-        # Pre-calculate inverse pose for occlusion check
         tw2c = np.linalg.inv(current_pose)
         R_cam, t_cam = tw2c[:3, :3], tw2c[:3, 3]
 
-        stereo_mask = np.zeros(len(self.points_2d_l), dtype=bool)
         for i in range(len(self.points_2d_l)):
+            if not stereo_mask[i]: continue
+
             u_l, v = self.points_2d_l[i]
-            u_r = res_r[i][0]
-            v_drift = abs(v - res_r[i][1])
+            disp = disparities[i]
+            pid = self.point_ids[i]
 
-            # Stereo Appearance Veto (Occluding Contours)
-            patch_l = gray_l[int(v)-self.half_p : int(v)+self.half_p+1, int(u_l)-self.half_p : int(u_l)+self.half_p+1]
-            patch_r = gray_r[int(res_r[i][1])-self.half_p : int(res_r[i][1])+self.half_p+1, int(res_r[i][0])-self.half_p : int(res_r[i][0])+self.half_p+1]
+            depth = (self.fx * self.baseline) / disp
+            local_pt_measured = np.array([(u_l - self.cx) * depth / self.fx, -((v - self.cy) * depth / self.fy), -depth])
+            z_measured = -local_pt_measured[2]
 
-            if patch_l.shape == patch_r.shape == (self.patch_size, self.patch_size):
-                mean_l, mean_r = np.mean(patch_l), np.mean(patch_r)
-                l_zero, r_zero = patch_l.astype(np.float32) - mean_l, patch_r.astype(np.float32) - mean_r
-                norm = np.sqrt(np.sum(l_zero**2) * np.sum(r_zero**2))
-                score = np.sum(l_zero * r_zero) / norm if norm > 1e-6 else 0
-                
-                if score < ZNCC_THRESHOLD_STEREO:
+            p_cam_expected = R_cam @ self.points_3d[i] + t_cam
+            z_expected = -p_cam_expected[2]
+            depth_diff = z_measured - z_expected
+            
+            if self.ages[i] > TRUST_DEPTH_AGE:
+                if depth_diff > MAX_OUTWARD_DRIFT: 
+                    stereo_mask[i] = False
+                    continue
+                if depth_diff < MAX_INWARD_DRIFT: 
                     stereo_mask[i] = False
                     continue
 
-            # Epipolar Drift Veto
-            if v_drift < MAX_V_DRIFT and (u_l - u_r) > MIN_DISPARITY:
-                
-                # --- 1. Measure CURRENT physical surface depth ---
-                local_pt_measured = self._triangulate(u_l, u_r, v)
-                z_measured = -local_pt_measured[2]
-                
-                # --- 2. THE OCCLUSION / GHOST VETO ---
-                p_cam_expected = R_cam @ self.points_3d[i] + t_cam
-                z_expected = -p_cam_expected[2]
-                
-                # If point is >5 frames old, we trust its depth. If the current surface 
-                # is suddenly 20cm closer (occlusion) or further (ghost), KILL IT!
-                if self.ages[i] > 5 and abs(z_expected - z_measured) > MAX_DEPTH_ERROR:
-                    stereo_mask[i] = False
-                    continue
-                # ---------------------------------------------
-                
-                stereo_mask[i] = True
-                pid = self.point_ids[i]
-                
-                if self.ages[i] <= self.min_age_confidence: 
-                    world_pt = current_pose[:3, :3] @ local_pt_measured + current_pose[:3, 3]
+            if self.ages[i] <= self.min_age_confidence: 
+                world_pt = current_pose[:3, :3] @ local_pt_measured + current_pose[:3, 3]
 
-                    # Fast EMA Smoothing
-                    alpha = 0.3
-                    smoothed_pt = (1.0 - alpha) * self.points_3d[i] + alpha * world_pt
+                smoothed_pt = (1.0 - EMA_ALPHA) * self.points_3d[i] + EMA_ALPHA * world_pt
 
-                    self.global_map[pid]['history'].append((current_pose, u_l, v))
-                    if len(self.global_map[pid]['history']) > 15:
-                        self.global_map[pid]['history'].pop(0)
+                self.global_map[pid]['history'].append((current_pose, u_l, v))
+                if len(self.global_map[pid]['history']) > MAX_HISTORY_FRAMES:
+                    self.global_map[pid]['history'].pop(0)
 
-                    # Trigger SVD on exact maturity frame
-                    if self.ages[i] == self.min_age_confidence:
-                        if self._is_history_unique_enough(self.global_map[pid]['history']):
-                            optimized_pt = self._triangulate_n_views(self.global_map[pid]['history'])
-                            if optimized_pt is not None:
-                                
-                                # --- THE CHEIRALITY CHECK ---
-                                # Project the SVD point into the local OpenXR camera frame
-                                local_chk = R_cam @ optimized_pt + t_cam
-                                
-                                # In OpenXR, the camera looks down the NEGATIVE Z axis.
-                                # If Z > 0, the math just threw the point behind your head!
-                                if local_chk[2] < 0: 
-                                    smoothed_pt = optimized_pt # Safe! Apply the optimization.
-                                else:
-                                    pass # Reject SVD, fall back to the safe stereo `smoothed_pt`
-                                # ----------------------------
-                                
-                        self.global_map[pid]['history'].clear()
+                if self.ages[i] == self.min_age_confidence:
+                    if self._is_history_unique_enough(self.global_map[pid]['history']):
+                        optimized_pt = self._triangulate_n_views(self.global_map[pid]['history'])
+                        if optimized_pt is not None:
+                            local_chk = R_cam @ optimized_pt + t_cam
+                            if local_chk[2] < 0: 
+                                smoothed_pt = optimized_pt 
+                    self.global_map[pid]['history'].clear() 
 
-                    self.points_3d[i] = smoothed_pt
-                    self.global_map[pid]['pt_3d'] = smoothed_pt
-                    
-                self.global_map[pid]['age'] = self.ages[i]
+                self.points_3d[i] = smoothed_pt
+                self.global_map[pid]['pt_3d'] = smoothed_pt
+                
+            self.global_map[pid]['age'] = self.ages[i]
 
-                if DRAW_DEBUG and debug_out is not None:
-                    cv2.circle(debug_out, (int(u_l), int(v)), 3, (0, 255, 0), -1)
+            if DRAW_DEBUG and debug_out is not None:
+                cv2.circle(debug_out, (int(u_l), int(v)), 3, (0, 255, 0), -1)
 
         self._drop_to_lost(stereo_mask)
 
@@ -408,58 +395,53 @@ class StereoPointTracker:
         )
         if new_corners is None: return
 
-        initial_guess = new_corners.copy()
-        initial_guess[:, 0, 0] -= STEREO_DISP_GUESS
-
-        res_r, stat_r, _ = cv2.calcOpticalFlowPyrLK(
-            gray_l, gray_r, new_corners, initial_guess,
-            winSize=self.win_size_klt, maxLevel=KLT_MAX_LEVEL, flags=cv2.OPTFLOW_USE_INITIAL_FLOW
-        )
-
-        if stat_r is None: return
-        stat_r, res_r, new_corners = stat_r.reshape(-1).astype(bool), res_r.reshape(-1, 2), new_corners.reshape(-1, 2)
+        new_corners = new_corners.reshape(-1, 2)
+        
+        stereo_mask, disparities = self._epipolar_stereo_search(gray_l, gray_r, new_corners)
 
         for i in range(len(new_corners)):
+            if not stereo_mask[i]: continue
+
             u_l, v = new_corners[i]
-            u_r = res_r[i][0]
-            if stat_r[i] and (u_l - u_r) > MIN_DISPARITY:
+            disp = disparities[i]
                 
-                # --- BUG FIX: .copy() IS MANDATORY ---
-                patch = gray_l[int(v)-self.half_p : int(v)+self.half_p+1, int(u_l)-self.half_p : int(u_l)+self.half_p+1].copy()
-                
-                if patch.shape == (self.patch_size, self.patch_size) and np.var(patch) >= MIN_PATCH_VARIANCE:
+            # --- BUG FIX: .copy() IS MANDATORY ---
+            patch = gray_l[int(v)-self.half_p : int(v)+self.half_p+1, int(u_l)-self.half_p : int(u_l)+self.half_p+1].copy()
+            
+            if patch.shape == (self.patch_size, self.patch_size) and np.var(patch) >= MIN_PATCH_VARIANCE:
 
-                    local_pt = self._triangulate(u_l, u_r, v)
-                    world_pt = current_pose[:3, :3] @ local_pt + current_pose[:3, 3]
+                depth = (self.fx * self.baseline) / disp
+                local_pt = np.array([(u_l - self.cx) * depth / self.fx, -((v - self.cy) * depth / self.fy), -depth])
+                world_pt = current_pose[:3, :3] @ local_pt + current_pose[:3, 3]
 
-                    voxel = self._get_voxel(world_pt)
-                    if voxel in occupied_voxels: continue
-                    occupied_voxels.add(voxel)
+                voxel = self._get_voxel(world_pt)
+                if voxel in occupied_voxels: continue
+                occupied_voxels.add(voxel)
 
-                    pid = self.next_global_id
-                    self.next_global_id += 1
+                pid = self.next_global_id
+                self.next_global_id += 1
 
-                    self.global_map[pid] = {
-                        'pt_3d': world_pt,
-                        'patch': patch,
-                        'age': 0,
-                        'state': 'ACTIVE',
-                        'history': [(current_pose, u_l, v)],
-                        'birth_frame': self.frame_idx  
-                    }
+                self.global_map[pid] = {
+                    'pt_3d': world_pt,
+                    'patch': patch,
+                    'age': 0,
+                    'state': 'ACTIVE',
+                    'history': [(current_pose, u_l, v)],
+                    'birth_frame': self.frame_idx  
+                }
 
-                    self.points_2d_l = np.vstack([self.points_2d_l, [u_l, v]]) if len(self.points_2d_l) > 0 else np.array([[u_l, v]])
-                    self.points_3d.append(world_pt)
-                    self.ages = np.append(self.ages, 0)
-                    self.point_ids = np.append(self.point_ids, pid)
+                self.points_2d_l = np.vstack([self.points_2d_l, [u_l, v]]) if len(self.points_2d_l) > 0 else np.array([[u_l, v]])
+                self.points_3d.append(world_pt)
+                self.ages = np.append(self.ages, 0)
+                self.point_ids = np.append(self.point_ids, pid)
 
-                    if self.birth_patches is None:
-                        self.birth_patches = np.array([patch])
-                    else:
-                        self.birth_patches = np.append(self.birth_patches, [patch], axis=0)
+                if self.birth_patches is None:
+                    self.birth_patches = np.array([patch])
+                else:
+                    self.birth_patches = np.append(self.birth_patches, [patch], axis=0)
 
-                    if DRAW_DEBUG and debug_out is not None:
-                        cv2.drawMarker(debug_out, (int(u_l), int(v)), (0, 0, 255), cv2.MARKER_CROSS, 6, 1)
+                if DRAW_DEBUG and debug_out is not None:
+                    cv2.drawMarker(debug_out, (int(u_l), int(v)), (0, 0, 255), cv2.MARKER_CROSS, 6, 1)
 
     def _cull_probation_failures(self):
         """Removes features that failed to reach maturity within the probation window."""
@@ -478,11 +460,6 @@ class StereoPointTracker:
     # --------------------------------------------------------------------------
     # MATH UTILS
     # --------------------------------------------------------------------------
-    
-    def _triangulate(self, u_l, u_r, v):
-        disp = max(MIN_DISPARITY, u_l - u_r)
-        depth = (self.fx * self.baseline) / disp
-        return np.array([(u_l - self.cx) * depth / self.fx, -((v - self.cy) * depth / self.fy), -depth])
     
     def _triangulate_n_views(self, history):
         if len(history) < 2: return None
