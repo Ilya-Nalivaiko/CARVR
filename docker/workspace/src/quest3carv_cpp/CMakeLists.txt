@@ -15,11 +15,13 @@ find_package(quest3carv_interfaces REQUIRED)
 # Find Math/Geometry Libraries
 find_package(Eigen3 REQUIRED)
 find_package(CGAL REQUIRED)
+find_package(Boost REQUIRED COMPONENTS graph)
 
 # Create the executable (We will create carving_node.cpp next)
 add_executable(carving_node 
   src/carving_node.cpp 
   src/FreespaceDelaunayAlgorithm.cc
+  src/GraphWrapper_Boost.cc
 )
 
 # Include directories
@@ -36,7 +38,7 @@ ament_target_dependencies(carving_node
   visualization_msgs
   quest3carv_interfaces
 )
-target_link_libraries(carving_node CGAL::CGAL)
+target_link_libraries(carving_node CGAL::CGAL Boost::graph)
 
 # Install rules
 install(TARGETS carving_node

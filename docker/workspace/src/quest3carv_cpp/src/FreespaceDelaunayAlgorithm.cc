@@ -26,6 +26,7 @@
 #define __FREESPACEDELAUNAYALGORITHM_CPP
 
 #include "quest3carv_cpp/FreespaceDelaunayAlgorithm.h"
+#include "quest3carv_cpp/GraphWrapper_Boost.h"
 #include <sys/time.h>
 #include <algorithm>
 
@@ -721,17 +722,17 @@ namespace dlovi {
     }
 
     void FreespaceDelaunayAlgorithm::tetsToTris(const Delaunay3 & dt, vector<Eigen::Vector3d> & points, list<Eigen::Vector3d> & tris, const int nVoteThresh) const {
-        // NEW Version, graph cut isosurf extraction with maxflow (builds the graph from scratch every time):
-        // {
-        //     // TODO: Remove timing output for graphcuts.
-        //     //cerr << "Running Graph Cut Isosurface Extraction..." << endl;
-        //     double t = timestamp();
-        //     tetsToTris_maxFlowSimple(dt, points, tris, nVoteThresh);
-        //     //cerr << "Time Taken (Isosurface): " << (timestamp() - t) << " s" << endl;
-        // }
+        //NEW Version, graph cut isosurf extraction with maxflow (builds the graph from scratch every time):
+        {
+            // TODO: Remove timing output for graphcuts.
+            cerr << "Running Graph Cut Isosurface Extraction..." << endl;
+            double t = timestamp();
+            tetsToTris_maxFlowSimple(dt, points, tris, nVoteThresh);
+            cerr << "Time Taken (Isosurface): " << (timestamp() - t) << " s" << endl;
+        }
 
         // OLD Version, simple isosurf extraction:
-        tetsToTris_naive(dt, points, tris, nVoteThresh);
+        //tetsToTris_naive(dt, points, tris, nVoteThresh);
     }
 
     int FreespaceDelaunayAlgorithm::writeObj(const string filename, const vector<Eigen::Vector3d> & points, const list<Eigen::Vector3d> & tris) const {
@@ -1513,6 +1514,113 @@ namespace dlovi {
                     tmpTri(2) = hmapVertexHandleToIndex[vecTri[2]];
                     tris.push_back(tmpTri);
                 }
+            }
+        }
+    }
+
+    void FreespaceDelaunayAlgorithm::tetsToTris_maxFlowSimple(const Delaunay3 & dt, vector<Eigen::Vector3d> & points, list<Eigen::Vector3d> & tris, const int nVoteThresh) const {
+        vector<Delaunay3::Vertex_handle> vecBoundsHandles;
+        // Use your modern unordered_map to prevent memory lookup crashes
+        std::unordered_map<Delaunay3::Vertex_handle, int, HashVertHandle, EqVertHandle> hmapVertexHandleToIndex;
+        map<Delaunay3::Cell_handle, int> mapCellHandleToIndex;
+        Eigen::Vector3d matTmpPoint = Eigen::Vector3d::Zero();
+        int loop;
+
+        int numFiniteTets = dt.number_of_finite_cells();
+        int numFiniteFacets = dt.number_of_finite_facets();
+
+        // Initialize the Boost maxflow graph
+        GraphWrapper_Boost graph(numFiniteTets, numFiniteFacets);
+        graph.addSource();
+        graph.addSink();
+
+        // Initialize points and tris as empty
+        if (! points.empty()) points.clear();
+        if (! tris.empty()) tris.clear();
+
+        // Identify bounding vertices
+        dt.incident_vertices(dt.infinite_vertex(), std::back_inserter(vecBoundsHandles));
+
+        // 1. Map all vertices to Eigen::Vector3d
+        for (Delaunay3::Finite_vertices_iterator itVert = dt.finite_vertices_begin(); itVert != dt.finite_vertices_end(); itVert++) {
+            // We register ALL vertices (including bounding box) to prevent lookup crashes later
+            matTmpPoint(0) = itVert->point().x();
+            matTmpPoint(1) = itVert->point().y();
+            matTmpPoint(2) = itVert->point().z();
+            points.push_back(matTmpPoint);
+            hmapVertexHandleToIndex[itVert] = points.size() - 1;
+        }
+
+        // 2. Map Cells
+        Delaunay3::Finite_cells_iterator it;
+        for (loop = 0, it = dt.finite_cells_begin(); it != dt.finite_cells_end(); it++, loop++) {
+            mapCellHandleToIndex[it] = loop;
+        }
+
+        // 3. The Data Term (Volume and Ray Intersections)
+        const double P_constr_X0 = 1.0;
+        const double P_no_constr_X0 = 0.0;
+        const double P_constr_X1 = 0.0;
+        const double P_no_constr_X1 = 1.0;
+
+        // TUNE THIS: Lower = Jagged/Accurate. Higher = Smooth/Shrink-wrapped.
+        const double lambda_smooth = 0.05; 
+
+        for (it = dt.finite_cells_begin(); it != dt.finite_cells_end(); it++) {
+            int node = mapCellHandleToIndex.find(it)->second;
+            double tetVolume = fabs(dt.tetrahedron(it).volume());
+
+            // Use the modern vote count check
+            if (it->info().isKeptByVoteCount(nVoteThresh)) {
+                // Node X has constraints (it survived carving)
+                graph.addTWeights(node, P_constr_X0 * tetVolume, P_constr_X1 * tetVolume);
+            } else {
+                // Node X was carved away by a ray
+                graph.addTWeights(node, P_no_constr_X0 * tetVolume, P_no_constr_X1 * tetVolume);
+            }
+        }
+
+        // 4. The Smoothness Term (Surface Tension)
+        for (Delaunay3::Finite_facets_iterator itFacet = dt.finite_facets_begin(); itFacet != dt.finite_facets_end(); itFacet++) {
+            bool bContainsBoundsVert = false;
+            for (int i = 0; i < 4; i++) {
+                if (i == itFacet->second) continue;
+                if (std::find(vecBoundsHandles.begin(), vecBoundsHandles.end(), itFacet->first->vertex(i)) != vecBoundsHandles.end()) {
+                    bContainsBoundsVert = true;  break;
+                }
+            }
+            // Do not penalize the invisible boundary box, only real geometry
+            if (!bContainsBoundsVert) {
+                double smoothness_cost = lambda_smooth * sqrt(dt.triangle(*itFacet).squared_area());
+                graph.addEdge(mapCellHandleToIndex[itFacet->first], mapCellHandleToIndex[itFacet->first->neighbor(itFacet->second)], smoothness_cost, smoothness_cost);
+            }
+        }
+
+        // 5. Calculate the Min-Cut!
+        graph.maxflow();
+
+        // 6. Extract the Watertight Eigen Mesh
+        for (Delaunay3::Finite_facets_iterator itFacet = dt.finite_facets_begin(); itFacet != dt.finite_facets_end(); itFacet++) {
+            
+            // Check the Graph Cut labels instead of the raw vote counts
+            bool bFacetCellKept = !graph.whatSegment(mapCellHandleToIndex[itFacet->first]);
+            bool bMirrorCellKept = !graph.whatSegment(mapCellHandleToIndex[itFacet->first->neighbor(itFacet->second)]);
+            
+            if (bFacetCellKept && !bMirrorCellKept) {
+                Delaunay3::Facet fTmp = dt.mirror_facet(*itFacet);
+                vector<Delaunay3::Vertex_handle> vecTri;
+                facetToTri(fTmp, vecTri);
+                
+                Eigen::Vector3d tmpTri(hmapVertexHandleToIndex[vecTri[0]], hmapVertexHandleToIndex[vecTri[1]], hmapVertexHandleToIndex[vecTri[2]]);
+                tris.push_back(tmpTri);
+            }
+            else if (bMirrorCellKept && !bFacetCellKept) {
+                Delaunay3::Facet fTmp = *itFacet;
+                vector<Delaunay3::Vertex_handle> vecTri;
+                facetToTri(fTmp, vecTri);
+                
+                Eigen::Vector3d tmpTri(hmapVertexHandleToIndex[vecTri[0]], hmapVertexHandleToIndex[vecTri[1]], hmapVertexHandleToIndex[vecTri[2]]);
+                tris.push_back(tmpTri);
             }
         }
     }

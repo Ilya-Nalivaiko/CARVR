@@ -379,6 +379,7 @@ namespace dlovi {
         void facetToTri(const Delaunay3::Facet & f, vector<Delaunay3::Vertex_handle> & vecTri) const;
         double timestamp() const;
         void tetsToTris_naive(const Delaunay3 & dt, vector<Eigen::Vector3d> & points, list<Eigen::Vector3d> & tris, const int nVoteThresh) const;
+        void tetsToTris_maxFlowSimple(const Delaunay3 & dt, std::vector<Eigen::Vector3d> & points, std::list<Eigen::Vector3d> & tris, const int nVoteThresh) const;
 
         // Private Members
         vector<Eigen::Vector3d> m_points;
