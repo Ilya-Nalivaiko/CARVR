@@ -8,6 +8,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 import cv2
 import os
+import collections
 
 from quest3carv.tracker import StereoPointTracker
 
@@ -20,7 +21,7 @@ class SpatialReconstructionNode(Node):
         self.bridge = CvBridge()
         
         # Configuration for Keyframe Debugging
-        self.save_kf_images = False
+        self.save_kf_images = True
         self.show_kf_images = True
         self.save_ply_clouds = False
         self.output_dir = "/workspace/debug/clouds"
@@ -77,6 +78,8 @@ class SpatialReconstructionNode(Node):
         self.keyframes = [] # List of (Image, Pose, Points)
         self.dist_threshold = 0.02 # cm
         self.rot_threshold = 2.0  # degrees
+        self.kf_observation_counts = collections.defaultdict(int)
+        self.min_kf_observations = 3  # The Drastic Measure
 
         # Keyframe Publisher
         self.kf_pub = self.create_publisher(KeyframeData, 'quest3carv/keyframe', 10)
@@ -91,7 +94,7 @@ class SpatialReconstructionNode(Node):
         )
         self.ts.registerCallback(self.process_bundle)
 
-    def visualize_keyframe(self, img, points_3d, points_2d, ages):
+    def visualize_keyframe(self, img, points_3d, points_2d, ages, ids_3d):
         """
         Processes an annotated keyframe image with point distances and ages.
         Can optionally save to disk or display live via OpenCV.
@@ -112,12 +115,13 @@ class SpatialReconstructionNode(Node):
             # Calculate Euclidean distance from the camera origin (0,0,0)
             dist = np.linalg.norm(points_3d[i])
             age = ages[i]
+            pid = int(ids_3d[i])
             
             # Draw point marker
             cv2.circle(debug_img, pt, 4, (0, 255, 0), -1)
             
             # Format label: "Dist: X.Xm | Age: Y"
-            label = f"{dist:.2f}m | {age}"
+            label = f"{pid} | {dist:.2f}m | {age} f"
             cv2.putText(debug_img, label, (pt[0] + 5, pt[1] - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
 
@@ -251,7 +255,7 @@ class SpatialReconstructionNode(Node):
                 return
             
             # Call the updated visualization functions
-            self.visualize_keyframe(img_l, points_3d, points_2d, ages)
+            self.visualize_keyframe(img_l, points_3d, points_2d, ages, ids_3d)
             if self.save_ply_clouds:
                 self.save_global_ply()
             
@@ -293,10 +297,20 @@ class SpatialReconstructionNode(Node):
 
             culled_dist = 0
             culled_frustum = 0
+            culled_age = 0
+
+            actual_pts = 0
             
             first_fail_logged = False
 
             for i, pt in enumerate(points_3d):
+                # If a point hasn't survived across at least 3 distinct keyframes, we don't trust its depth. Throw it in the garbage.
+                pid = int(ids_3d[i])
+                if self.kf_observation_counts[pid] < self.min_kf_observations: 
+                    culled_age += 1
+                    self.get_logger().warn(f"CULL REASON (Age): {self.kf_observation_counts[pid]} keyframes")
+                    continue
+
                 dist = np.linalg.norm(pt - cam_pos) 
                 
                 if 0.2 < dist < 3.5:
@@ -318,6 +332,7 @@ class SpatialReconstructionNode(Node):
                             p.x, p.y, p.z = float(pt[0]), float(pt[1]), float(pt[2])
                             kf_msg.points.append(p)
                             kf_msg.point_ids.append(int(ids_3d[i]))
+                            actual_pts += 1
                         else:
                             culled_frustum += 1
                             if not first_fail_logged:
@@ -328,9 +343,13 @@ class SpatialReconstructionNode(Node):
                     if not first_fail_logged:
                         self.get_logger().warn(f"CULL REASON (Distance): {dist:.2f} meters")
                         first_fail_logged = True
+            
+            if actual_pts == 0:
+                self.get_logger().info(f"All pts filtered out")
+                return
                 
             self.kf_pub.publish(kf_msg)
-            self.get_logger().info(f"Keyframe: Sent {len(kf_msg.points)} | Culled Dist: {culled_dist} | Culled Frustum: {culled_frustum}")
+            self.get_logger().info(f"Keyframe: Sent {len(kf_msg.points)} | Culled Dist: {culled_dist} | Culled Frustum: {culled_frustum}| Culled Age: {culled_age}")
 
 def main():
     rclpy.init()
