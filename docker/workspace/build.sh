@@ -1,4 +1,4 @@
-rm -rf build/ install/ log/
+#rm -rf build/ install/ log/
 
 source /opt/ros/humble/setup.bash
 
