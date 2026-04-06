@@ -46,10 +46,6 @@ private:
             carver_.addCamCenter(cam_center); 
             int current_cam_idx = carver_.numCams() - 1;
 
-            auto current_cams = carver_.getCams();
-            current_cams.push_back(cam_center); 
-            carver_.setCams(current_cams);
-
             auto current_rays = carver_.getPrincipleRays();
             current_rays.push_back(look_dir);
             carver_.setPrincipleRays(current_rays);
@@ -68,7 +64,7 @@ private:
                     local_idx = carver_.numPoints() - 1;
                     global_id_to_local_idx_[global_id] = local_idx; 
                     
-                    obs_count_.push_back(1);
+                    obs_count_.push_back(3);
                     last_seen_kf_.push_back(keyframe_count_);
                     is_dead_.push_back(false);
                 }

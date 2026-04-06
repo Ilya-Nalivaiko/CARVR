@@ -321,14 +321,11 @@ class SpatialReconstructionNode(Node):
                     # Project world point into this camera's local frame
                     p_cam = T_w2c[:3, :3] @ pt + T_w2c[:3, 3]
                     
-                    # Use absolute value to bypass the +Z/-Z OpenXR trap temporarily
-                    z_safe = abs(p_cam[2]) 
-                    
-                    if z_safe > 0.1:
-                        # Mathematical projection onto the 2D sensor
-                        # Note: We use absolute Z, and if Y was flipped by OpenXR, we check both
-                        u = (fx * p_cam[0] / -p_cam[2] if p_cam[2] < 0 else fx * p_cam[0] / p_cam[2]) + cx
-                        v = (fy * p_cam[1] / -p_cam[2] if p_cam[2] < 0 else fy * p_cam[1] / p_cam[2]) + cy
+                    # Strictly ensure the point is in front of the camera
+                    if p_cam[2] < -0.1: 
+                        # Standard projection without the abs() hack
+                        u = (fx * p_cam[0] / -p_cam[2]) + cx
+                        v = (fy * p_cam[1] / -p_cam[2]) + cy
                         
                         # 10-pixel safety margin
                         if 10 <= u < 630 and 10 <= v < 630:
