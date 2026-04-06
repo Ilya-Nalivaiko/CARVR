@@ -249,6 +249,11 @@ class SpatialReconstructionNode(Node):
 
             n_pts = len(points_3d)
 
+            for i, pt in enumerate(points_3d):
+                # Point in a keyframe
+                pid = int(ids_3d[i])
+                self.kf_observation_counts[pid] += 1
+
             if (n_pts < 1):
                 #self.get_logger().info(f"No points in this keyframe")
                 return
