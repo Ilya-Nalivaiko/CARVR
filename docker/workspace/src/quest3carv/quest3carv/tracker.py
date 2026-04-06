@@ -56,9 +56,6 @@ class StereoPointTracker:
         self.global_map = {} 
         self.prev_gray = None
         self.frame_idx = 0
-        
-        # Instantiate OpenCV's Line Segment Detector for Modeler.cc behavior
-        self.lsd = cv2.createLineSegmentDetector(0)
 
     def _get_grid_idx(self, u, v):
         c = int(np.clip(u // GRID_SIZE, 0, self.grid_cols - 1))
@@ -227,8 +224,7 @@ class StereoPointTracker:
 
     def get_confident_points(self):
         """
-        Extracts mature points and actively injects artificial points along
-        detected straight lines to force CARV to mesh flat walls (Modeler.cc port).
+        Extracts mature points
         """
         pts_3d, p2d, ages, ids = [], [], [], []
         
@@ -239,50 +235,5 @@ class StereoPointTracker:
                 p2d.append([data['u'], data['v']])
                 ages.append(data['age'])
                 ids.append(pid)
-                
-        # 2. Modeler.cc Line Densification Injection
-        if len(pts_3d) > 1 and self.prev_gray is not None:
-            lines = self.lsd.detect(self.prev_gray)[0]
-            if lines is not None:
-                art_pts_3d, art_p2d = [], []
-                
-                for line in lines:
-                    x1, y1, x2, y2 = line[0]
-                    a, b = np.array([x1, y1]), np.array([x2, y2])
-                    if np.linalg.norm(b - a) < 20: continue # Skip tiny lines
-                    
-                    points_on_line = []
-                    for i, p2 in enumerate(p2d):
-                        dist, t = self._point_to_segment_dist(np.array(p2), a, b)
-                        if dist <= 3.0: # If real point is within 3 pixels of the line
-                            points_on_line.append((t, pts_3d[i]))
-                            
-                    # If line connects 2+ real points, inject structural skeleton points
-                    if len(points_on_line) >= 2:
-                        points_on_line.sort(key=lambda x: x[0])
-                        for i in range(len(points_on_line) - 1):
-                            t1, p3d_1 = points_on_line[i]
-                            t2, p3d_2 = points_on_line[i+1]
-                            
-                            dist_3d = np.linalg.norm(p3d_1 - p3d_2)
-                            if 0.05 < dist_3d < 2.0: # Inject a point every 5cm
-                                num_inject = int(dist_3d / 0.05)
-                                for j in range(1, num_inject):
-                                    frac = j / float(num_inject)
-                                    new_3d = p3d_1 + frac * (p3d_2 - p3d_1)
-                                    
-                                    new_2d_t = t1 + frac * (t2 - t1)
-                                    new_2d = a + new_2d_t * (b - a)
-                                    
-                                    art_pts_3d.append(new_3d)
-                                    art_p2d.append(new_2d.tolist())
-                                    
-                # Add injected points to the output payload
-                for i in range(len(art_pts_3d)):
-                    pts_3d.append(art_pts_3d[i])
-                    p2d.append(art_p2d[i])
-                    ages.append(10) # Dummy age to pass filters
-                    self.next_global_id += 1
-                    ids.append(self.next_global_id)
 
         return np.array(pts_3d), np.array(p2d), np.array(ages), np.array(ids)

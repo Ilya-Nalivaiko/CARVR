@@ -66,31 +66,13 @@ private:
                     
                     obs_count_.push_back(3);
                     last_seen_kf_.push_back(keyframe_count_);
-                    is_dead_.push_back(false);
                 }
                 carver_.addVisibilityPair(current_cam_idx, local_idx);
             }
 
-            // --- 3. THE INCREMENTAL DELAUNAY ENGINE (Algorithm 1 & 2) ---
             // This updates the persistent dt_ mesh instead of rebuilding it from scratch
             carver_.IterateTetrahedronMethod(dt_, vecVertexHandles_, current_cam_idx);
 
-            // --- 4. OUTLIER DELETION (Algorithm 3) ---
-            int ghosts_culled = 0;
-            for (size_t i = 0; i < obs_count_.size(); ++i) {
-                if (!is_dead_[i] && obs_count_[i] <= 3 && (keyframe_count_ - last_seen_kf_[i]) > 5) {
-                    // This physically rips the point out of the Delaunay mesh,
-                    // allowing the carving rays to flood the hole and erase the spiderweb.
-                    carver_.removeVertex(dt_, vecVertexHandles_, i);
-                    is_dead_[i] = true; 
-                    ghosts_culled++;
-                }
-            }
-            if (ghosts_culled > 0) {
-                RCLCPP_INFO(this->get_logger(), "Algorithm 3: Erased %d outlier points and recarved holes.", ghosts_culled);
-            }
-
-            // --- 5. THE THROTTLE GATE ---
             // (Placed after the state updates so the Delaunay engine never desyncs from the tracker)
             if (keyframe_count_ % process_every_n_frames_ != 0) {
                 return; 
@@ -205,7 +187,6 @@ private:
     
     std::vector<int> obs_count_;
     std::vector<int> last_seen_kf_;
-    std::vector<bool> is_dead_;
     
     int keyframe_count_;
     int process_every_n_frames_; 

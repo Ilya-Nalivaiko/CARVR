@@ -722,17 +722,17 @@ namespace dlovi {
     }
 
     void FreespaceDelaunayAlgorithm::tetsToTris(const Delaunay3 & dt, vector<Eigen::Vector3d> & points, list<Eigen::Vector3d> & tris, const int nVoteThresh) const {
-        //NEW Version, graph cut isosurf extraction with maxflow (builds the graph from scratch every time):
-        {
-            // TODO: Remove timing output for graphcuts.
-            cerr << "Running Graph Cut Isosurface Extraction..." << endl;
-            double t = timestamp();
-            tetsToTris_maxFlowSimple(dt, points, tris, nVoteThresh);
-            cerr << "Time Taken (Isosurface): " << (timestamp() - t) << " s" << endl;
-        }
+        // //NEW Version, graph cut isosurf extraction with maxflow (builds the graph from scratch every time):
+        // {
+        //     // TODO: Remove timing output for graphcuts.
+        //     cerr << "Running Graph Cut Isosurface Extraction..." << endl;
+        //     double t = timestamp();
+        //     tetsToTris_maxFlowSimple(dt, points, tris, nVoteThresh);
+        //     cerr << "Time Taken (Isosurface): " << (timestamp() - t) << " s" << endl;
+        // }
 
         // OLD Version, simple isosurf extraction:
-        //tetsToTris_naive(dt, points, tris, nVoteThresh);
+        tetsToTris_naive(dt, points, tris, nVoteThresh);
     }
 
     int FreespaceDelaunayAlgorithm::writeObj(const string filename, const vector<Eigen::Vector3d> & points, const list<Eigen::Vector3d> & tris) const {
