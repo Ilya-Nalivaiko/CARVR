@@ -109,7 +109,6 @@ class SpatialReconstructionNode(Node):
         debug_img = cv2.resize(img, (int(w * scale), int(h * scale)))
 
         for i in range(len(points_2d)):
-            # Scale 2D coordinates
             pt = (int(points_2d[i][0] * scale), int(points_2d[i][1] * scale))
             
             # Calculate Euclidean distance from the camera origin (0,0,0)
