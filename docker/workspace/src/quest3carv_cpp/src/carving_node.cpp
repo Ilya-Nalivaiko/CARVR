@@ -7,6 +7,7 @@
 #include <Eigen/Dense>
 #include "quest3carv_cpp/FreespaceDelaunayAlgorithm.h"
 #include <unordered_map>
+#include <vector>
 
 class CarvingNode : public rclcpp::Node {
 public:
@@ -18,23 +19,21 @@ public:
         pub_mesh_ = this->create_publisher<visualization_msgs::msg::Marker>("quest3carv/carved_mesh", 10);
         pub_points_ = this->create_publisher<visualization_msgs::msg::Marker>("quest3carv/carved_points", 10);
 
-        RCLCPP_INFO(this->get_logger(), "Freespace Carving Node Initialized! Throttled to map every %d keyframes.", process_every_n_frames_);
+        RCLCPP_INFO(this->get_logger(), "Incremental Freespace Carving Node Initialized.");
     }
 
 private:
     void keyframe_callback(const quest3carv_interfaces::msg::KeyframeData::SharedPtr msg) {
         keyframe_count_++;
-        //RCLCPP_INFO(this->get_logger(), "--- INGESTING KEYFRAME %d (%zu points) ---", keyframe_count_, msg->points.size());
 
         try {
-            // 1. Extract Camera Optic Center (O)
+            // 1. Extract Camera Optic Center
             Eigen::Vector3d cam_center(
                 msg->camera_pose.position.x,
                 msg->camera_pose.position.y,
                 msg->camera_pose.position.z
             );
 
-            // Calculate Principle Ray (Viewing Direction) using the Quaternion
             Eigen::Quaterniond q(
                 msg->camera_pose.orientation.w,
                 msg->camera_pose.orientation.x,
@@ -43,7 +42,7 @@ private:
             );
             Eigen::Vector3d look_dir = q * Eigen::Vector3d(0, 0, -1);
 
-            // 2. Feed the Carver State via Proper API (Instant, No Lag)
+            // 2. Feed the Carver State
             carver_.addCamCenter(cam_center); 
             int current_cam_idx = carver_.numCams() - 1;
 
@@ -55,47 +54,58 @@ private:
             current_rays.push_back(look_dir);
             carver_.setPrincipleRays(current_rays);
 
+            // Process Incoming Points
             for (size_t i = 0; i < msg->points.size(); ++i) {
-                const auto& pt = msg->points[i];
                 uint32_t global_id = msg->point_ids[i];
                 int local_idx;
 
                 if (global_id_to_local_idx_.count(global_id) > 0) {
                     local_idx = global_id_to_local_idx_[global_id];
+                    obs_count_[local_idx]++;
+                    last_seen_kf_[local_idx] = keyframe_count_;
                 } else {
-                    carver_.addPoint(Eigen::Vector3d(pt.x, pt.y, pt.z));
+                    carver_.addPoint(Eigen::Vector3d(msg->points[i].x, msg->points[i].y, msg->points[i].z));
                     local_idx = carver_.numPoints() - 1;
                     global_id_to_local_idx_[global_id] = local_idx; 
+                    
+                    obs_count_.push_back(1);
+                    last_seen_kf_.push_back(keyframe_count_);
+                    is_dead_.push_back(false);
                 }
                 carver_.addVisibilityPair(current_cam_idx, local_idx);
             }
 
-            // --- THE THROTTLE GATE ---
-            // Only do the heavy math every N frames. Otherwise, exit the callback quickly.
+            // --- 3. THE INCREMENTAL DELAUNAY ENGINE (Algorithm 1 & 2) ---
+            // This updates the persistent dt_ mesh instead of rebuilding it from scratch
+            carver_.IterateTetrahedronMethod(dt_, vecVertexHandles_, current_cam_idx);
+
+            // --- 4. OUTLIER DELETION (Algorithm 3) ---
+            int ghosts_culled = 0;
+            for (size_t i = 0; i < obs_count_.size(); ++i) {
+                if (!is_dead_[i] && obs_count_[i] <= 3 && (keyframe_count_ - last_seen_kf_[i]) > 5) {
+                    // This physically rips the point out of the Delaunay mesh,
+                    // allowing the carving rays to flood the hole and erase the spiderweb.
+                    carver_.removeVertex(dt_, vecVertexHandles_, i);
+                    is_dead_[i] = true; 
+                    ghosts_culled++;
+                }
+            }
+            if (ghosts_culled > 0) {
+                RCLCPP_INFO(this->get_logger(), "Algorithm 3: Erased %d outlier points and recarved holes.", ghosts_culled);
+            }
+
+            // --- 5. THE THROTTLE GATE ---
+            // (Placed after the state updates so the Delaunay engine never desyncs from the tracker)
             if (keyframe_count_ % process_every_n_frames_ != 0) {
-                RCLCPP_INFO(this->get_logger(), "Data buffered. Waiting for frame %d to carve.", 
-                            keyframe_count_ + (process_every_n_frames_ - (keyframe_count_ % process_every_n_frames_)));
                 return; 
             }
 
-            // 3. Build the CGAL Delaunay Triangulation (Heavy)
-            dlovi::FreespaceDelaunayAlgorithm::Delaunay3 dt;
-            const auto& all_points = carver_.getPoints();
-            for (const auto& p : all_points) {
-                dt.insert(dlovi::FreespaceDelaunayAlgorithm::PointD3(p.x(), p.y(), p.z()));
-            }
-
-            // 4. Run the Carving Algorithm! (Very Heavy)
-            RCLCPP_INFO(this->get_logger(), "Carving tetrahedra...");
-            carver_.TetrahedronBatchMethod(dt, false);
-
-            // 5. Extract Isosurface (The "Skin")
+            // 6. Extract Isosurface (The "Skin")
             std::list<Eigen::Vector3d> tris;
-            int vote_threshold = 1; 
             std::vector<Eigen::Vector3d> points_copy = carver_.getPoints();
-            carver_.tetsToTris(dt, points_copy, tris, vote_threshold);
+            carver_.tetsToTris(dt_, points_copy, tris, 1);
             
-            // Near-Field / FoV Edge Clipper
+            // Standard Near-Field Clipper
             double near_clip_dist = 0.45; 
             std::list<Eigen::Vector3d> filtered_tris;
             const auto& cams = carver_.getCamCenters(); 
@@ -110,9 +120,7 @@ private:
                 double min_cam_dist = std::numeric_limits<double>::max();
                 for (const auto& cam : cams) {
                     double dist = (centroid - cam).norm();
-                    if (dist < min_cam_dist) {
-                        min_cam_dist = dist;
-                    }
+                    if (dist < min_cam_dist) min_cam_dist = dist;
                 }
                 
                 if (min_cam_dist > near_clip_dist) {
@@ -121,12 +129,7 @@ private:
             }
             tris = filtered_tris; 
 
-            RCLCPP_INFO(this->get_logger(), "Mesh extracted! %zu clean triangles generated.", tris.size());
-
-            std::string obj_path = "/workspace/carved_room.obj"; 
-            carver_.writeObj(obj_path, points_copy, tris);
-
-            // 6. Publish
+            // 7. Publish
             publish_mesh(tris);
             publish_points(msg);
 
@@ -171,11 +174,9 @@ private:
             marker.points.push_back(p1);
             marker.points.push_back(p2);
         }
-
         pub_mesh_->publish(marker);
     }
 
-    // Pass the incoming message directly into the function
     void publish_points(const quest3carv_interfaces::msg::KeyframeData::SharedPtr& msg) {
         visualization_msgs::msg::Marker marker;
         marker.header.frame_id = "world";
@@ -189,11 +190,9 @@ private:
         marker.scale.x = 0.02; marker.scale.y = 0.02; marker.scale.z = 0.02;
         marker.color.r = 1.0; marker.color.g = 1.0; marker.color.b = 0.0; marker.color.a = 1.0; 
 
-        // --- THE FIX: Only draw the points currently being tracked in THIS frame ---
         for (const auto& pt : msg->points) {
             marker.points.push_back(pt);
         }
-
         pub_points_->publish(marker);
     }
 
@@ -201,11 +200,19 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_mesh_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr pub_points_;
     
+    // --- THE FIX: Persistent Incremental State ---
     dlovi::FreespaceDelaunayAlgorithm carver_;
+    dlovi::FreespaceDelaunayAlgorithm::Delaunay3 dt_;
+    std::vector<dlovi::FreespaceDelaunayAlgorithm::Delaunay3::Vertex_handle> vecVertexHandles_;
+
     std::unordered_map<uint32_t, int> global_id_to_local_idx_; 
     
+    std::vector<int> obs_count_;
+    std::vector<int> last_seen_kf_;
+    std::vector<bool> is_dead_;
+    
     int keyframe_count_;
-    int process_every_n_frames_; // Change this to 10 if it's still lagging!
+    int process_every_n_frames_; 
 };
 
 int main(int argc, char **argv) {

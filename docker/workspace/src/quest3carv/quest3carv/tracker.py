@@ -6,8 +6,8 @@ import os
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-GRID_SIZE = 16                   # Sparse enough to be clean, dense enough to find lines
-MIN_TRANSLATION_METERS = 0.15    # Requires 15cm movement before Bayesian updates begin
+GRID_SIZE = 64                   # Sparse enough to be clean, dense enough to find lines
+MIN_TRANSLATION_METERS = 0.25    # Requires 15cm movement before Bayesian updates begin
 MAX_DEPTH_VARIANCE = 0.05   
 INITIAL_VARIANCE = 2.0      
 
