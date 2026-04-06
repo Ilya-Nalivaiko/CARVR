@@ -69,7 +69,7 @@ class DatasetExportNode(Node):
             with open(json_path, "w") as f:
                 json.dump(meta, f, indent=4)
 
-            self.get_logger().info(f"Saved Keyframe {self.kf_count:04d}")
+            #self.get_logger().info(f"Saved Keyframe {self.kf_count:04d}")
             self.kf_count += 1
 
         except Exception as e:

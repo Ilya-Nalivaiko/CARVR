@@ -13,20 +13,21 @@ INITIAL_VARIANCE = 2.0
 
 # KLT & MVS Config
 KLT_WIN = (21, 21)
-ZNCC_THRESH = 0.70               # Temporal tracking threshold
-ZNCC_THRESH_STEREO = 0.80        # STRICT: User preferred initial seed quality
-ZNCC_UNIQUENESS_MARGIN = 0.15
+ZNCC_THRESH = 0.80               # Temporal tracking threshold
+ZNCC_THRESH_STEREO = 0.90        # STRICT: User preferred initial seed quality
+ZNCC_UNIQUENESS_MARGIN = 0.2
 PATCH_SIZE = 20 
 HALF_P = PATCH_SIZE // 2
 MAX_DISPARITY = 120
 MIN_DISPARITY = 2.5
 
-GFTT_QUALITY_LEVEL = 0.20        
+GFTT_QUALITY_LEVEL = 0.30        
 REPLENISH_THRESHOLD = 50         
 
 # BRISK Config
-BRISK_MATCH_THRESH = 70          # Hamming distance threshold for a successful match
-RECOVERY_SEARCH_WINDOW = 30      # Pixels to search around projected LOST point
+BRISK_MATCH_LOWE = 0.40          # Hamming distance threshold for a successful match
+BRISK_MATCH_CEIL = 70
+RECOVERY_SEARCH_WINDOW = 40      # Pixels to search around projected LOST point
 
 # --- DEBUG SETTINGS ---
 DRAW_DEBUG = True
@@ -48,7 +49,7 @@ class DepthFilter:
             self.converged = True
 
 class StereoPointTracker:
-    def __init__(self, K, baseline, width=640, height=640):
+    def __init__(self, K, baseline, logger, width=640, height=640):
         self.K = K
         self.fx, self.fy = K[0, 0], K[1, 1]
         self.cx, self.cy = K[0, 2], K[1, 2]
@@ -62,8 +63,10 @@ class StereoPointTracker:
         self.frame_idx = 0
 
         # Initialize BRISK and Matcher
-        self.brisk = cv2.BRISK_create()
-        self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        self.brisk = cv2.BRISK_create(thresh=15)
+        self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+
+        self.logger = logger
 
     def _get_grid_idx(self, u, v):
         c = int(np.clip(u // GRID_SIZE, 0, self.grid_cols - 1))
@@ -112,7 +115,7 @@ class StereoPointTracker:
             pts_prev = np.array([[self.global_map[p]['u'], self.global_map[p]['v']] for p in active_pids], dtype=np.float32)
             pts_curr, status, _ = cv2.calcOpticalFlowPyrLK(self.prev_gray, gray_l, pts_prev, None, winSize=KLT_WIN)
             for i, pid in enumerate(active_pids):
-                if status[i][0] and 5 < pts_curr[i][0] < self.W-5 and 5 < pts_curr[i][1] < self.H-5:
+                if status[i][0] and (HALF_P+2) < pts_curr[i][0] < self.W-(HALF_P+2) and (HALF_P+2) < pts_curr[i][1] < self.H-(HALF_P+2):
                     self.global_map[pid]['u'], self.global_map[pid]['v'] = pts_curr[i][0], pts_curr[i][1]
                     self.global_map[pid]['age'] += 1
                     self.global_map[pid]['history'].append((current_pose, pts_curr[i][0], pts_curr[i][1]))
@@ -140,7 +143,8 @@ class StereoPointTracker:
                 pt_c = R_w2c @ pt_w + t_w2c
                 depth = -pt_c[2] # Based on your OpenXR coordinate system
                 
-                if depth < 0.1: 
+                if depth < 0.1:
+                    #self.logger.warn(f"LOST NOT FOUND: point behind camera")
                     continue # Point is behind the camera
                 
                 proj_u = (pt_c[0] * self.fx / depth) + self.cx
@@ -149,35 +153,53 @@ class StereoPointTracker:
                 # Check if projected point is within image bounds + margin
                 if not (RECOVERY_SEARCH_WINDOW < proj_u < self.W - RECOVERY_SEARCH_WINDOW and 
                         RECOVERY_SEARCH_WINDOW < proj_v < self.H - RECOVERY_SEARCH_WINDOW):
+                    #self.logger.warn(f"LOST NOT FOUND: not in image")
                     continue
                     
-                # Extract local patch around projected location
+                # Create a black mask the size of the whole image
+                mask = np.zeros_like(gray_l)
+
+                # Draw a white rectangle over your search window
                 u_min, u_max = int(proj_u - RECOVERY_SEARCH_WINDOW), int(proj_u + RECOVERY_SEARCH_WINDOW)
                 v_min, v_max = int(proj_v - RECOVERY_SEARCH_WINDOW), int(proj_v + RECOVERY_SEARCH_WINDOW)
-                patch = gray_l[v_min:v_max, u_min:u_max]
-                
-                # Detect and compute BRISK in the local patch
-                kps = self.brisk.detect(patch, None)
-                if not kps: 
+
+                # Clamp coordinates safely to image bounds
+                u_min, u_max = max(0, u_min), min(self.W, u_max)
+                v_min, v_max = max(0, v_min), min(self.H, v_max)
+
+                mask[v_min:v_max, u_min:u_max] = 255
+
+                # Detect features on the FULL image, but restricted by the mask
+                kps = self.brisk.detect(gray_l, mask=mask)
+                if not kps:
+                    #self.logger.warn(f"LOST NOT FOUND: not kps")
                     continue
                 
-                kps, descs = self.brisk.compute(patch, kps)
-                if descs is None: 
+                kps, descs = self.brisk.compute(gray_l, kps)
+                if descs is None:
+                    #self.logger.warn(f"LOST NOT FOUND: not descs")
                     continue
                 
                 # Match against saved descriptor
-                matches = self.matcher.match(np.array([data['descriptor']]), descs)
-                if matches and matches[0].distance < BRISK_MATCH_THRESH:
-                    best_kp = kps[matches[0].trainIdx]
+                matches = self.matcher.knnMatch(np.array([data['descriptor']]), descs, k=2)
+                if len(matches[0]) == 2:
+                    m, n = matches[0]
+                    if m.distance < BRISK_MATCH_LOWE * n.distance and m.distance < BRISK_MATCH_CEIL: # Lowe's Ratio
+                        # This is a robust match!
+                        best_kp = kps[m.trainIdx]
                     
-                    # Recover the point!
-                    data['u'] = u_min + best_kp.pt[0]
-                    data['v'] = v_min + best_kp.pt[1]
-                    data['state'] = 'MATURE'
-                    
-                    if DRAW_DEBUG:
-                        # Draw recovered points in Magenta
-                        cv2.circle(debug_out, (int(data['u']), int(data['v'])), 5, (255, 0, 255), 2)
+                        # Recover the point!
+                        data['u'] = u_min + best_kp.pt[0]
+                        data['v'] = v_min + best_kp.pt[1]
+                        data['state'] = 'MATURE'
+                        
+                        if DRAW_DEBUG:
+                            # Draw recovered points in Magenta
+                            cv2.circle(debug_out, (int(data['u']), int(data['v'])), 5, (255, 0, 255), 2)
+                            self.logger.warn(f"LOST WAS ACTUALLY FOUND WOW")
+                else:
+                    #self.logger.warn(f"LOST NOT FOUND: Not mached. Best match distance was {matches[0].distance}")
+                    continue
 
         # 2. O(1) Spatial Hashing
         occupied_grid = {}
@@ -239,6 +261,11 @@ class StereoPointTracker:
 
     def _replenish(self, gray_l, gray_r, pose_w2c, occupied_grid=None, debug_out=None):
         mask = np.ones((self.H, self.W), dtype=np.uint8) * 255
+        edge_margin = HALF_P + 5
+        mask[:edge_margin, :] = 0
+        mask[-edge_margin:, :] = 0
+        mask[:, :edge_margin] = 0
+        mask[:, -edge_margin:] = 0
         if occupied_grid:
             for idx in occupied_grid.keys():
                 r, c = idx // self.grid_cols, idx % self.grid_cols

@@ -70,7 +70,7 @@ class SpatialReconstructionNode(Node):
 
         # Initialize Tracker using the Virtual Rectified Camera Intrinsic (P1)
         rectified_K = self.P1[:3, :3] 
-        self.tracker = StereoPointTracker(rectified_K, baseline=self.true_baseline)
+        self.tracker = StereoPointTracker(rectified_K, baseline=self.true_baseline, logger=self.get_logger())
         # ==========================================================
 
         # Keyframe Logic State
