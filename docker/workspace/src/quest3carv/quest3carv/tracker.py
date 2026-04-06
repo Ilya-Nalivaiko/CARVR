@@ -24,6 +24,10 @@ MIN_DISPARITY = 2.5
 GFTT_QUALITY_LEVEL = 0.20        
 REPLENISH_THRESHOLD = 50         
 
+# BRISK Config
+BRISK_MATCH_THRESH = 70          # Hamming distance threshold for a successful match
+RECOVERY_SEARCH_WINDOW = 30      # Pixels to search around projected LOST point
+
 # --- DEBUG SETTINGS ---
 DRAW_DEBUG = True
 DEBUG_DIR = "/workspace/debug/tracker_frames"
@@ -56,6 +60,10 @@ class StereoPointTracker:
         self.global_map = {} 
         self.prev_gray = None
         self.frame_idx = 0
+
+        # Initialize BRISK and Matcher
+        self.brisk = cv2.BRISK_create()
+        self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
     def _get_grid_idx(self, u, v):
         c = int(np.clip(u // GRID_SIZE, 0, self.grid_cols - 1))
@@ -115,6 +123,62 @@ class StereoPointTracker:
                 else:
                     self.global_map[pid]['state'] = 'LOST'
 
+        # 1.5 BRISK Re-acquisition for LOST points
+        lost_pids = [pid for pid, data in self.global_map.items() 
+                     if data['state'] == 'LOST' and 'descriptor' in data]
+        
+        if lost_pids:
+            # current_pose is Pose_w2c (World to Camera). Invert it to get Camera to World
+            R_w2c = current_pose[:3, :3].T
+            t_w2c = -R_w2c @ current_pose[:3, 3]
+            
+            for pid in lost_pids:
+                data = self.global_map[pid]
+                pt_w = data['pt_3d']
+                
+                # Project world point into current camera frame
+                pt_c = R_w2c @ pt_w + t_w2c
+                depth = -pt_c[2] # Based on your OpenXR coordinate system
+                
+                if depth < 0.1: 
+                    continue # Point is behind the camera
+                
+                proj_u = (pt_c[0] * self.fx / depth) + self.cx
+                proj_v = (-pt_c[1] * self.fy / depth) + self.cy
+                
+                # Check if projected point is within image bounds + margin
+                if not (RECOVERY_SEARCH_WINDOW < proj_u < self.W - RECOVERY_SEARCH_WINDOW and 
+                        RECOVERY_SEARCH_WINDOW < proj_v < self.H - RECOVERY_SEARCH_WINDOW):
+                    continue
+                    
+                # Extract local patch around projected location
+                u_min, u_max = int(proj_u - RECOVERY_SEARCH_WINDOW), int(proj_u + RECOVERY_SEARCH_WINDOW)
+                v_min, v_max = int(proj_v - RECOVERY_SEARCH_WINDOW), int(proj_v + RECOVERY_SEARCH_WINDOW)
+                patch = gray_l[v_min:v_max, u_min:u_max]
+                
+                # Detect and compute BRISK in the local patch
+                kps = self.brisk.detect(patch, None)
+                if not kps: 
+                    continue
+                
+                kps, descs = self.brisk.compute(patch, kps)
+                if descs is None: 
+                    continue
+                
+                # Match against saved descriptor
+                matches = self.matcher.match(np.array([data['descriptor']]), descs)
+                if matches and matches[0].distance < BRISK_MATCH_THRESH:
+                    best_kp = kps[matches[0].trainIdx]
+                    
+                    # Recover the point!
+                    data['u'] = u_min + best_kp.pt[0]
+                    data['v'] = v_min + best_kp.pt[1]
+                    data['state'] = 'MATURE'
+                    
+                    if DRAW_DEBUG:
+                        # Draw recovered points in Magenta
+                        cv2.circle(debug_out, (int(data['u']), int(data['v'])), 5, (255, 0, 255), 2)
+
         # 2. O(1) Spatial Hashing
         occupied_grid = {}
         for pid in [p for p in active_pids if self.global_map[p]['state'] != 'LOST']:
@@ -160,6 +224,11 @@ class StereoPointTracker:
                     
                     if data['filter'].converged:
                         data['state'] = 'MATURE'
+                        # Compute BRISK descriptor at maturation
+                        kp = [cv2.KeyPoint(float(data['u']), float(data['v']), 15)]
+                        _, des = self.brisk.compute(gray_l, kp)
+                        if des is not None:
+                            data['descriptor'] = des[0]
 
         # 4. Replenish
         if sum(1 for d in self.global_map.values() if d['state'] in ['ACTIVE', 'MATURE']) < REPLENISH_THRESHOLD:
@@ -212,15 +281,6 @@ class StereoPointTracker:
             cv2.imshow("Bayesian LSD Tracker", debug_out)
             cv2.waitKey(1)
         self.frame_idx += 1
-
-    def _point_to_segment_dist(self, p, a, b):
-        """Math helper for LSD association."""
-        ab = b - a
-        ap = p - a
-        t = np.dot(ap, ab) / max(1e-6, np.dot(ab, ab))
-        t = max(0.0, min(1.0, t))
-        closest = a + t * ab
-        return np.linalg.norm(p - closest), t
 
     def get_confident_points(self):
         """
