@@ -84,7 +84,7 @@ private:
             carver_.tetsToTris(dt_, points_copy, tris, 1);
             
             // Standard Near-Field Clipper
-            double near_clip_dist = 0.45; 
+            double near_clip_dist = 0.10; 
             std::list<Eigen::Vector3d> filtered_tris;
             const auto& cams = carver_.getCamCenters(); 
             

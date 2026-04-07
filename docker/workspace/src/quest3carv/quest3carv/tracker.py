@@ -14,7 +14,7 @@ INITIAL_VARIANCE = 2.0
 # KLT & MVS Config
 KLT_WIN = (21, 21)
 ZNCC_THRESH = 0.80               # Temporal tracking threshold
-ZNCC_THRESH_STEREO = 0.90        # STRICT: User preferred initial seed quality
+ZNCC_THRESH_STEREO = 0.80        # STRICT: User preferred initial seed quality
 ZNCC_UNIQUENESS_MARGIN = 0.2
 PATCH_SIZE = 20 
 HALF_P = PATCH_SIZE // 2
@@ -93,6 +93,29 @@ class StereoPointTracker:
 
         res = cv2.matchTemplate(strip_r, patch_l, cv2.TM_CCOEFF_NORMED)
         _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        
+        # --- UNIQUENESS CHECK ---
+        # Create a copy to find the second peak
+        res_copy = res.copy()
+        
+        # Suppress the area around the best match (e.g., a 5px window)
+        # This prevents the "second best" from just being the neighbor of the "best"
+        h, w = res.shape
+        y, x = max_loc
+        r = 5 
+        y_min, y_max = max(0, y-r), min(h, y+r+1)
+        x_min, x_max = max(0, x-r), min(w, x+r+1)
+        res_copy[y_min:y_max, x_min:x_max] = -1 # Set to lowest possible ZNCC
+        
+        # Find the second best peak
+        _, second_max_val, _, _ = cv2.minMaxLoc(res_copy)
+        
+        # Apply the margin check
+        # We ensure the best match is significantly better than any other candidate
+        if (max_val - second_max_val) < ZNCC_UNIQUENESS_MARGIN:
+            return None, 0
+        # ----------------------------
+
         best_u_r = u_r_start + max_loc[0] + HALF_P
         return max_val, best_u_r
 
