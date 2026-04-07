@@ -6,16 +6,15 @@ import os
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-GRID_SIZE = 64                   # Sparse enough to be clean, dense enough to find lines
-MIN_TRANSLATION_METERS = 0.25    # Requires 15cm movement before Bayesian updates begin
-MAX_DEPTH_VARIANCE = 0.05   
+GRID_SIZE = 32                   # Sparse enough to be clean, dense enough to find lines
+MIN_TRANSLATION_METERS = 0.05    # Don't spam Bayesian updates
+MAX_DEPTH_VARIANCE = 0.10   
 INITIAL_VARIANCE = 2.0      
 
 # KLT & MVS Config
 KLT_WIN = (21, 21)
-ZNCC_THRESH = 0.80               # Temporal tracking threshold
-ZNCC_THRESH_STEREO = 0.80        # STRICT: User preferred initial seed quality
-ZNCC_UNIQUENESS_MARGIN = 0.2
+ZNCC_THRESH_STEREO = 0.90        # STRICT: User preferred initial seed quality
+ZNCC_UNIQUENESS_MARGIN = 0.15
 PATCH_SIZE = 20 
 HALF_P = PATCH_SIZE // 2
 MAX_DISPARITY = 120
@@ -101,8 +100,8 @@ class StereoPointTracker:
         # Suppress the area around the best match (e.g., a 5px window)
         # This prevents the "second best" from just being the neighbor of the "best"
         h, w = res.shape
-        y, x = max_loc
-        r = 5 
+        x, y = max_loc
+        r = HALF_P
         y_min, y_max = max(0, y-r), min(h, y+r+1)
         x_min, x_max = max(0, x-r), min(w, x+r+1)
         res_copy[y_min:y_max, x_min:x_max] = -1 # Set to lowest possible ZNCC
@@ -131,7 +130,7 @@ class StereoPointTracker:
             self._finalize_debug(debug_out)
             return
 
-        active_pids = [pid for pid, data in self.global_map.items() if data['state'] in ['ACTIVE', 'MATURE']]
+        active_pids = [pid for pid, data in self.global_map.items() if data['state'] in ['NEW', 'MATURE']]
         
         # 1. KLT Temporal Tracking
         if active_pids:
@@ -140,14 +139,18 @@ class StereoPointTracker:
             for i, pid in enumerate(active_pids):
                 if status[i][0] and (HALF_P+2) < pts_curr[i][0] < self.W-(HALF_P+2) and (HALF_P+2) < pts_curr[i][1] < self.H-(HALF_P+2):
                     self.global_map[pid]['u'], self.global_map[pid]['v'] = pts_curr[i][0], pts_curr[i][1]
-                    self.global_map[pid]['age'] += 1
-                    self.global_map[pid]['history'].append((current_pose, pts_curr[i][0], pts_curr[i][1]))
                     
                     if DRAW_DEBUG:
                         color = (0, 255, 0) if self.global_map[pid]['state'] == 'MATURE' else (255, 255, 0)
                         cv2.circle(debug_out, (int(pts_curr[i][0]), int(pts_curr[i][1])), 3, color, -1)
                 else:
-                    self.global_map[pid]['state'] = 'LOST'
+                    # If it was still a seed, don't bother recovering
+                    if self.global_map[pid]['state'] == 'NEW':
+                        self.global_map[pid]['state'] = 'DEAD'
+                        # do not bother recovering points which never matured. deleted later
+                    elif self.global_map[pid]['state'] == 'MATURE':
+                        # It was MATURE, so mark it LOST for BRISK recovery
+                        self.global_map[pid]['state'] = 'LOST'
 
         # 1.5 BRISK Re-acquisition for LOST points
         lost_pids = [pid for pid, data in self.global_map.items() 
@@ -212,8 +215,8 @@ class StereoPointTracker:
                         best_kp = kps[m.trainIdx]
                     
                         # Recover the point!
-                        data['u'] = u_min + best_kp.pt[0]
-                        data['v'] = v_min + best_kp.pt[1]
+                        data['u'] = best_kp.pt[0]
+                        data['v'] = best_kp.pt[1]
                         data['state'] = 'MATURE'
                         
                         if DRAW_DEBUG:
@@ -225,36 +228,47 @@ class StereoPointTracker:
                     continue
 
         # 2. O(1) Spatial Hashing
+        # need to re-do because of above two steps
+        active_pids = [pid for pid, data in self.global_map.items() if data['state'] in ['NEW', 'MATURE']]
         occupied_grid = {}
-        for pid in [p for p in active_pids if self.global_map[p]['state'] != 'LOST']:
+        for pid in active_pids:
             idx = self._get_grid_idx(self.global_map[pid]['u'], self.global_map[pid]['v'])
             if idx in occupied_grid:
                 ex_pid = occupied_grid[idx]
                 if self.global_map[ex_pid]['filter'].sigma2 < self.global_map[pid]['filter'].sigma2:
-                    self.global_map[pid]['state'] = 'LOST'
+                    if self.global_map[ex_pid]['state'] == 'NEW':
+                        self.global_map[ex_pid]['state'] = 'DEAD'
+                    elif self.global_map[ex_pid]['state'] == 'MATURE':
+                        self.global_map[ex_pid]['state'] = 'LOST'
                 else:
-                    self.global_map[ex_pid]['state'] = 'LOST'
+                    if self.global_map[ex_pid]['state'] == 'NEW':
+                        self.global_map[ex_pid]['state'] = 'DEAD'
+                    elif self.global_map[ex_pid]['state'] == 'MATURE':
+                        self.global_map[ex_pid]['state'] = 'LOST'
                     occupied_grid[idx] = pid
             else:
                 occupied_grid[idx] = pid
 
         # 3. Bayesian Depth Filtering
         for pid, data in self.global_map.items():
-            if data['state'] != 'ACTIVE': continue
+            if data['state'] != 'NEW': continue
             
-            t_dist = np.linalg.norm(current_pose[:3, 3] - data['birth_pose'][:3, 3])
-            
-            # Wait for physical baseline to expand before updating filter
-            if t_dist >= MIN_TRANSLATION_METERS:
+            # check for baseline change (NOT just translation)
+            R_birth_inv = data['birth_pose'][:3, :3].T
+            t_world_delta = current_pose[:3, 3] - data['last_update_pose'][:3, 3]
+            lateral_dist = np.linalg.norm((R_birth_inv @ t_world_delta)[:2])
+            if lateral_dist >= MIN_TRANSLATION_METERS:
+                # Perform ZNCC and Kalman Update
                 mu, sigma = data['filter'].mu, np.sqrt(data['filter'].sigma2)
                 u_r_min = int(data['u'] - ((self.fx * self.baseline) / max(0.1, mu - 2*sigma)))
                 u_r_max = int(data['u'] - ((self.fx * self.baseline) / (mu + 2*sigma)))
                 
                 score, best_u_r = self._safe_match_template(gray_l, gray_r, data['u'], data['v'], u_r_min, u_r_max)
                 
-                if score and score > ZNCC_THRESH:
+                if score and score > ZNCC_THRESH_STEREO:
                     m_depth = (self.fx * self.baseline) / max(1.0, data['u'] - best_u_r)
-                    data['filter'].update(m_depth, 0.1 / max(0.01, t_dist))
+                    m_variance = (data['filter'].mu**2) / (self.fx * max(0.01, lateral_dist))
+                    data['filter'].update(m_depth, m_variance)
                     
                     depth = data['filter'].mu
                     
@@ -264,11 +278,13 @@ class StereoPointTracker:
                         -((data['v'] - self.cy) * depth / self.fy), 
                         -depth
                     ])
-                    
-                    data['pt_3d'] = current_pose[:3, :3] @ l_pt + current_pose[:3, 3]
+
+                    data['last_update_pose'] = current_pose.copy()
                     
                     if data['filter'].converged:
                         data['state'] = 'MATURE'
+                        # delayed triangulation
+                        data['pt_3d'] = current_pose[:3, :3] @ l_pt + current_pose[:3, 3]
                         # Compute BRISK descriptor at maturation
                         kp = [cv2.KeyPoint(float(data['u']), float(data['v']), 15)]
                         _, des = self.brisk.compute(gray_l, kp)
@@ -276,8 +292,13 @@ class StereoPointTracker:
                             data['descriptor'] = des[0]
 
         # 4. Replenish
-        if sum(1 for d in self.global_map.values() if d['state'] in ['ACTIVE', 'MATURE']) < REPLENISH_THRESHOLD:
+        if sum(1 for d in self.global_map.values() if d['state'] in ['NEW', 'MATURE']) < REPLENISH_THRESHOLD:
             self._replenish(gray_l, gray_r, current_pose, occupied_grid, debug_out)
+        
+        # Safe dictionary clean-up
+        pids_to_remove = [pid for pid, data in self.global_map.items() if data['state'] == 'DEAD']
+        for pid in pids_to_remove:
+            del self.global_map[pid]
 
         self.prev_gray = gray_l
         self._finalize_debug(debug_out)
@@ -304,26 +325,27 @@ class StereoPointTracker:
                 if score and score > ZNCC_THRESH_STEREO:
                     initial_depth = (self.fx * self.baseline) / max(1.0, u - best_u_r)
                     
-                    local_pt = np.array([
-                        (u - self.cx) * initial_depth / self.fx, 
-                        -((v - self.cy) * initial_depth / self.fy), 
-                        -initial_depth
-                    ])
+                    # DELAY TRIANGULATION
+                    # local_pt = np.array([
+                    #     (u - self.cx) * initial_depth / self.fx, 
+                    #     -((v - self.cy) * initial_depth / self.fy), 
+                    #     -initial_depth
+                    # ])
                     
-                    world_pt = pose_w2c[:3, :3] @ local_pt + pose_w2c[:3, 3]
+                    #world_pt = pose_w2c[:3, :3] @ local_pt + pose_w2c[:3, 3]
 
                     pid = self.next_global_id
                     self.next_global_id += 1
                     self.global_map[pid] = {
-                        'u': u, 'v': v, 'birth_pose': pose_w2c, 'age': 0, 'state': 'ACTIVE',
-                        'filter': DepthFilter(initial_depth, INITIAL_VARIANCE), 'pt_3d': world_pt, 'history': [(pose_w2c, u, v)]
+                        'u': u, 'v': v, 'birth_pose': pose_w2c, 'last_update_pose': pose_w2c, 'state': 'NEW',
+                        'filter': DepthFilter(initial_depth, INITIAL_VARIANCE), #'pt_3d': world_pt
                     }
                     if DRAW_DEBUG and debug_out is not None:
                         cv2.drawMarker(debug_out, (int(u), int(v)), (0, 0, 255), cv2.MARKER_CROSS, 6, 1)
 
     def _finalize_debug(self, debug_out):
         if DRAW_DEBUG and debug_out is not None:
-            active_count = sum(1 for data in self.global_map.values() if data['state'] in ['ACTIVE', 'MATURE'])
+            active_count = sum(1 for data in self.global_map.values() if data['state'] in ['NEW', 'MATURE'])
             mature_count = sum(1 for data in self.global_map.values() if data['state'] == 'MATURE')
             
             label = f"F:{self.frame_idx} ACT:{active_count} MAT:{mature_count}"
@@ -336,14 +358,13 @@ class StereoPointTracker:
         """
         Extracts mature points
         """
-        pts_3d, p2d, ages, ids = [], [], [], []
+        pts_3d, p2d, ids = [], [], []
         
         # 1. Gather real, physically tracked points
         for pid, data in self.global_map.items():
             if data['state'] == 'MATURE':
                 pts_3d.append(data['pt_3d'])
                 p2d.append([data['u'], data['v']])
-                ages.append(data['age'])
                 ids.append(pid)
 
-        return np.array(pts_3d), np.array(p2d), np.array(ages), np.array(ids)
+        return np.array(pts_3d), np.array(p2d), np.array(ids)

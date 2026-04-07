@@ -94,9 +94,9 @@ class SpatialReconstructionNode(Node):
         )
         self.ts.registerCallback(self.process_bundle)
 
-    def visualize_keyframe(self, img, points_3d, points_2d, ages, ids_3d):
+    def visualize_keyframe(self, img, points_3d, points_2d, ids_3d):
         """
-        Processes an annotated keyframe image with point distances and ages.
+        Processes an annotated keyframe image with point distances
         Can optionally save to disk or display live via OpenCV.
         """
         # Fast exit if we aren't displaying or saving
@@ -113,14 +113,13 @@ class SpatialReconstructionNode(Node):
             
             # Calculate Euclidean distance from the camera origin (0,0,0)
             dist = np.linalg.norm(points_3d[i])
-            age = ages[i]
             pid = int(ids_3d[i])
             
             # Draw point marker
             cv2.circle(debug_img, pt, 4, (0, 255, 0), -1)
             
             # Format label: "Dist: X.Xm | Age: Y"
-            label = f"{pid} | {dist:.2f}m | {age} f"
+            label = f"{pid} | {dist:.2f}m"
             cv2.putText(debug_img, label, (pt[0] + 5, pt[1] - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
 
@@ -245,7 +244,7 @@ class SpatialReconstructionNode(Node):
             self.last_kf_pose = msg_p.pose
             
             # Extract high-confidence points visible from this keyframe
-            points_3d, points_2d, ages, ids_3d = self.tracker.get_confident_points()
+            points_3d, points_2d, ids_3d = self.tracker.get_confident_points()
 
             n_pts = len(points_3d)
 
@@ -259,7 +258,7 @@ class SpatialReconstructionNode(Node):
                 return
             
             # Call the updated visualization functions
-            self.visualize_keyframe(img_l, points_3d, points_2d, ages, ids_3d)
+            self.visualize_keyframe(img_l, points_3d, points_2d, ids_3d)
             if self.save_ply_clouds:
                 self.save_global_ply()
             
@@ -308,13 +307,6 @@ class SpatialReconstructionNode(Node):
             first_fail_logged = False
 
             for i, pt in enumerate(points_3d):
-                # If a point hasn't survived across at least 3 distinct keyframes, we don't trust its depth. Throw it in the garbage.
-                pid = int(ids_3d[i])
-                if self.kf_observation_counts[pid] < self.min_kf_observations: 
-                    culled_age += 1
-                    self.get_logger().warn(f"CULL REASON (Age): {self.kf_observation_counts[pid]} keyframes")
-                    continue
-
                 dist = np.linalg.norm(pt - cam_pos) 
                 
                 if 0.2 < dist < 3.5:
