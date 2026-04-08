@@ -438,6 +438,7 @@ class StereoPointTracker:
             label = f"F:{self.frame_idx} ACT:{active_count} MAT:{mature_count}"
             cv2.putText(debug_out, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             cv2.imshow("Bayesian LSD Tracker", debug_out)
+            cv2.imwrite(f"/workspace/debug/tracker_frames/frame{self.frame_idx:08d}.jpg", debug_out)
             cv2.waitKey(1)
         self.frame_idx += 1
 
