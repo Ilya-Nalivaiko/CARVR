@@ -7,7 +7,7 @@ import os
 # CONFIGURATION
 # ==============================================================================
 GRID_SIZE = 32                   # Sparse enough to be clean, dense enough to find lines
-MIN_TRANSLATION_METERS = 0.05    # Don't spam Bayesian updates
+MIN_TRANSLATION_METERS = 0.25    # Don't spam Bayesian updates
 MAX_DEPTH_VARIANCE = 0.10   
 INITIAL_VARIANCE = 2.0      
 
@@ -117,6 +117,57 @@ class StereoPointTracker:
 
         best_u_r = u_r_start + max_loc[0] + HALF_P
         return max_val, best_u_r
+
+    def _intersect_rays_with_stereo(self, observations, K, stereo_weight_factor):
+        """
+        Finds the 3D point using both Ray Intersection and Weighted Stereo Priors.
+        observations: list of dicts {'u': u, 'v': v, 'pose_w2c': np.array, 'stereo_pt': np.array, 'variance': float}
+        """
+        K_inv = np.linalg.inv(K)
+        A = np.zeros((3, 3))
+        b = np.zeros(3)
+        I = np.eye(3)
+
+        for obs in observations:
+            pose = obs['pose_w2c']
+            
+            # User's code defined `pose` as World-to-Camera. 
+            # We need Camera-to-World for ray origin and direction.
+            R_w2c = pose[:3, :3]
+            t_w2c = pose[:3, 3]
+            
+            R_c2w = R_w2c.T
+            cam_center = -R_c2w @ t_w2c  # Ray origin in World Space
+            
+            # Unproject pixel to local camera ray
+            uv_hom = np.array([obs['u'], obs['v'], 1.0])
+            ray_c = K_inv @ uv_hom
+            
+            # Apply OpenXR coordinate convention (-Y, -Z)
+            ray_c[1] = -ray_c[1]
+            ray_c[2] = -ray_c[2]
+            
+            # Rotate ray into World Space
+            ray_w = R_c2w @ ray_c
+            ray_dir = ray_w / np.linalg.norm(ray_w)
+            
+            # 1. Multi-View Ray Constraint
+            M = I - np.outer(ray_dir, ray_dir)
+            A += M
+            b += M @ cam_center
+
+            # 2. Stereo Depth Constraint
+            if obs['stereo_pt'] is not None:
+                # Weight is inversely proportional to variance
+                w = stereo_weight_factor / max(1e-5, obs['variance'])
+                A += w * I
+                b += w * obs['stereo_pt']
+
+        try:
+            # Solve A * P = b
+            return np.linalg.solve(A, b)
+        except np.linalg.LinAlgError:
+            return None
 
     def ingest_frame(self, img_l, img_r, current_pose):
         gray_l = cv2.cvtColor(img_l, cv2.COLOR_BGR2GRAY)
@@ -258,6 +309,7 @@ class StereoPointTracker:
             t_world_delta = current_pose[:3, 3] - data['last_update_pose'][:3, 3]
             lateral_dist = np.linalg.norm((R_birth_inv @ t_world_delta)[:2])
             if lateral_dist >= MIN_TRANSLATION_METERS:
+                self.logger.warn(f"TRANSLATION DISTANCE: {lateral_dist}")
                 # Perform ZNCC and Kalman Update
                 mu, sigma = data['filter'].mu, np.sqrt(data['filter'].sigma2)
                 u_r_min = int(data['u'] - ((self.fx * self.baseline) / max(0.1, mu - 2*sigma)))
@@ -267,7 +319,13 @@ class StereoPointTracker:
                 
                 if score and score > ZNCC_THRESH_STEREO:
                     m_depth = (self.fx * self.baseline) / max(1.0, data['u'] - best_u_r)
-                    m_variance = (data['filter'].mu**2) / (self.fx * max(0.01, lateral_dist))
+                    
+                    # Scale pixel variance inversely with ZNCC score
+                    sigma_d_squared = 1.0 / max(0.01, score) 
+                    # Geometric variance propagation: scales with Z^4
+                    b = max(0.001, lateral_dist)
+                    m_variance = ((m_depth**2) / (self.fx * b))**2 * sigma_d_squared
+                    
                     data['filter'].update(m_depth, m_variance)
                     
                     depth = data['filter'].mu
@@ -278,13 +336,35 @@ class StereoPointTracker:
                         -((data['v'] - self.cy) * depth / self.fy), 
                         -depth
                     ])
+                    world_pt = current_pose[:3, :3] @ l_pt + current_pose[:3, 3]
 
                     data['last_update_pose'] = current_pose.copy()
                     
+                    # 3. Add to Keyframe History
+                    data['history'].append({
+                        'u': data['u'],
+                        'v': data['v'],
+                        'pose_w2c': current_pose.copy(),
+                        'stereo_pt': world_pt,
+                        'variance': data['filter'].sigma2
+                    })
+                    
+                    # 4. Maturation & WLS Triangulation
                     if data['filter'].converged:
                         data['state'] = 'MATURE'
-                        # delayed triangulation
-                        data['pt_3d'] = current_pose[:3, :3] @ l_pt + current_pose[:3, 3]
+                        
+                        # Tune stereo_weight_factor (0.1 to 2.0). 
+                        # Lower = Trust Rays more. Higher = Trust Stereo more.
+                        P_world = self._intersect_rays_with_stereo(data['history'], self.K, stereo_weight_factor=0.7)
+                        
+                        if P_world is not None:
+                            data['pt_3d'] = P_world
+                        else:
+                            data['pt_3d'] = world_pt # Fallback if math fails
+                            
+                        # Free up memory (optional, depending on your RAM constraints)
+                        del data['history'] 
+                        
                         # Compute BRISK descriptor at maturation
                         kp = [cv2.KeyPoint(float(data['u']), float(data['v']), 15)]
                         _, des = self.brisk.compute(gray_l, kp)
@@ -326,19 +406,26 @@ class StereoPointTracker:
                     initial_depth = (self.fx * self.baseline) / max(1.0, u - best_u_r)
                     
                     # DELAY TRIANGULATION
-                    # local_pt = np.array([
-                    #     (u - self.cx) * initial_depth / self.fx, 
-                    #     -((v - self.cy) * initial_depth / self.fy), 
-                    #     -initial_depth
-                    # ])
+                    # this is used for history but isnt actually the decided on point
+                    local_pt = np.array([
+                        (u - self.cx) * initial_depth / self.fx, 
+                        -((v - self.cy) * initial_depth / self.fy), 
+                        -initial_depth
+                    ])
                     
-                    #world_pt = pose_w2c[:3, :3] @ local_pt + pose_w2c[:3, 3]
+                    world_pt = pose_w2c[:3, :3] @ local_pt + pose_w2c[:3, 3]
 
                     pid = self.next_global_id
                     self.next_global_id += 1
                     self.global_map[pid] = {
                         'u': u, 'v': v, 'birth_pose': pose_w2c, 'last_update_pose': pose_w2c, 'state': 'NEW',
                         'filter': DepthFilter(initial_depth, INITIAL_VARIANCE), #'pt_3d': world_pt
+                        'history': [{
+                            'u': u, 'v': v, 
+                            'pose_w2c': pose_w2c.copy(), 
+                            'stereo_pt': world_pt, 
+                            'variance': INITIAL_VARIANCE
+                        }]
                     }
                     if DRAW_DEBUG and debug_out is not None:
                         cv2.drawMarker(debug_out, (int(u), int(v)), (0, 0, 255), cv2.MARKER_CROSS, 6, 1)

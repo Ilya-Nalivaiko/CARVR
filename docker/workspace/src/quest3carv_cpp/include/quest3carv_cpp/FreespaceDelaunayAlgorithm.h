@@ -52,7 +52,7 @@ using namespace std;
 
 // Set the algorithm's forgetting heuristic parameter "K" here, and whether it's used.
 //#define NO_HEURISTIC_K
-#define HEURISTIC_K 1
+#define HEURISTIC_K 10
 //#define HEURISTIC_K 5
 
 #define sqrt_eps_d 1.49011611938477e-08
