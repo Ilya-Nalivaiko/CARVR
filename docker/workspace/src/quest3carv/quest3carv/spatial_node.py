@@ -94,7 +94,7 @@ class SpatialReconstructionNode(Node):
         )
         self.ts.registerCallback(self.process_bundle)
 
-    def visualize_keyframe(self, img, points_3d, points_2d, ids_3d):
+    def visualize_keyframe(self, img, points_3d, points_2d, ids_3d, camera_pose):
         """
         Processes an annotated keyframe image with point distances
         Can optionally save to disk or display live via OpenCV.
@@ -102,6 +102,9 @@ class SpatialReconstructionNode(Node):
         # Fast exit if we aren't displaying or saving
         if not self.save_kf_images and not self.show_kf_images:
             return
+        
+        # Extract the camera's translation vector (x, y, z) in world space
+        camera_pos = camera_pose[:3, 3]
 
         # Upscale factor for better text resolution
         scale = 1
@@ -111,8 +114,8 @@ class SpatialReconstructionNode(Node):
         for i in range(len(points_2d)):
             pt = (int(points_2d[i][0] * scale), int(points_2d[i][1] * scale))
             
-            # Calculate Euclidean distance from the camera origin (0,0,0)
-            dist = np.linalg.norm(points_3d[i])
+            # Calculate Euclidean distance from the camera
+            dist = np.linalg.norm(points_3d[i] - camera_pos)
             pid = int(ids_3d[i])
             
             # Draw point marker
@@ -258,7 +261,7 @@ class SpatialReconstructionNode(Node):
                 return
             
             # Call the updated visualization functions
-            self.visualize_keyframe(img_l, points_3d, points_2d, ids_3d)
+            self.visualize_keyframe(img_l, points_3d, points_2d, ids_3d, mat)
             if self.save_ply_clouds:
                 self.save_global_ply()
             
